@@ -40,7 +40,7 @@
 }
 
 * { box-sizing: border-box; }
-html { height: 100%; background: var(--ink); }
+html { height: 100%; background: var(--ink); touch-action: manipulation; -webkit-text-size-adjust: 100%; }
 body { min-height: 100%; }
 body { margin: 0; padding-top: env(safe-area-inset-top, 0px); background: var(--bg); color: var(--text); font: 500 15px/1.45 var(--f-ui); -webkit-font-smoothing: antialiased; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--ink); }
@@ -404,3 +404,13 @@ main { padding-bottom: calc(var(--tabbar-h) + 64px + env(safe-area-inset-bottom,
 /* iPhone: keep the header clear of the status bar's blur */
 .topbar { padding-top: 12px; }
 .topbar-in { height: 52px; }
+
+/* No double-tap zoom anywhere (PIN pad included) */
+a, button, input, select, textarea, label, .k, .person { touch-action: manipulation; }
+@media (max-width: 700px) { input, select, textarea, .search input { font-size: 16px !important; } }   /* stops iPhone zooming into fields */
+
+/* Everyone / Mine switch on Today */
+.showing { display: flex; align-items: center; gap: 10px; }
+.seg2 { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--surface-2, var(--surface)); border: 1px solid var(--line); }
+.seg2 button { border: 0; background: none; color: var(--text-2); font: 700 13.5px/1 var(--f-ui); padding: 8px 16px; border-radius: 999px; cursor: pointer; }
+.seg2 button[aria-pressed="true"] { background: var(--mint); color: #0C1B1C; box-shadow: var(--shadow); }

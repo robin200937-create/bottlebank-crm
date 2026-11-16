@@ -219,10 +219,11 @@
 
     return `
       <div class="page-head"><div><h1>${hi}, ${esc(S.me.name)}</h1><p>${dateLine} · ${summary}</p></div>
-        <div class="chips" role="group" aria-label="Whose follow-ups">
-          <button class="chip" type="button" data-act="today-mine" data-v="0" aria-pressed="${!todayMine}">Everyone</button>
-          <button class="chip" type="button" data-act="today-mine" data-v="1" aria-pressed="${todayMine}">Mine</button>
-        </div></div>
+        <div class="showing"><span class="label">Showing</span>
+          <div class="seg2" role="group" aria-label="Whose follow-ups">
+            <button type="button" data-act="today-mine" data-v="0" aria-pressed="${!todayMine}">${!todayMine ? "✓ " : ""}Everyone</button>
+            <button type="button" data-act="today-mine" data-v="1" aria-pressed="${todayMine}">${todayMine ? "✓ " : ""}Mine</button>
+          </div></div></div>
 
       <section aria-label="Pipeline">
         <div class="sec-head"><h2>Pipeline</h2><span class="count num">${S.venues.length} venues</span></div>
