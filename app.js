@@ -49,6 +49,21 @@
   const people = () => (S.people && S.people.length ? S.people : PEOPLE_FALLBACK);
   const personName = ini => (people().find(p => p.initials === ini) || {}).name || ini || "";
   const av = (ini, sm) => ini ? `<span class="av ${sm ? "sm" : ""} ${esc(ini.toLowerCase())}" title="${esc(personName(ini))}">${esc(ini)}</span>` : `<span class="av ${sm ? "sm" : ""} none" title="No owner">–</span>`;
+  const personById = id => (S.people || []).find(p => p.id === id);
+  function ago(d) {
+    if (!d) return "";
+    const m = Math.floor((Date.now() - d.getTime()) / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return m + " min ago";
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + (h === 1 ? " hour ago" : " hours ago");
+    return fmt(ymd(d));
+  }
+  function stamp(ts) {
+    if (!ts) return "";
+    const d = new Date(ts); let h = d.getHours(); const ap = h < 12 ? "am" : "pm"; h = h % 12 || 12;
+    return `${fmt(ymd(d))}, ${h}:${pad(d.getMinutes())} ${ap}`;
+  }
   const cityTag = c => `<span class="city">${c === "KL" ? "KL" : "SG"}</span>`;
   const pill = k => `<span class="pill s-${k}">${esc(STAGE[k]?.t || k)}</span>`;
   const byId = id => S.venues.find(v => v.id === id);
@@ -72,6 +87,7 @@
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>',
     back: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+    download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h3.5l1.8 4.5-2.3 1.4a11 11 0 0 0 6.1 6.1l1.4-2.3L20 15.5V19a1.5 1.5 0 0 1-1.6 1.5C10.6 20 4 13.4 3.5 5.6A1.5 1.5 0 0 1 5 4Z"/></svg>',
     chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1.3-3.6A8 8 0 1 1 8.5 19.4Z"/><path d="M9 10h6M9 13.5h4"/></svg>',
@@ -146,6 +162,7 @@
       </div></header>
       ${demo}${off}${installBanner()}
       <main class="gutter" id="view"></main>
+      <button class="syncbar" id="syncbar" type="button" data-act="resync" aria-live="polite">${syncText()}</button>
       <nav class="tabbar" aria-label="Main"><div class="tabbar-in">
         <a href="#today" ${r.name === "today" ? 'aria-current="page"' : ""}>${I.today}Today</a>
         <a href="#venues" ${r.name === "venues" || r.name === "venue" ? 'aria-current="page"' : ""}>${I.venues}Venues</a>
@@ -162,6 +179,19 @@
     if (q) { q.value = F.q; q.oninput = () => { F.q = q.value; F.limit = 80; renderVenueList(); }; }
     document.querySelectorAll("[data-filter]").forEach(sel => sel.onchange = () => { F[sel.dataset.filter] = sel.value; F.limit = 80; prefs.filters2 = { ...F }; savePrefs(); renderVenueList(); });
   }
+
+  /* ---------------------------------------------------------------- sync status */
+  function syncText() {
+    const st = S.sync || {};
+    const cls = !S.online ? "off" : st.state;
+    const txt = !S.online ? `Offline${st.at ? " · last synced " + ago(st.at) : ""}`
+      : st.state === "error" ? "Not synced · tap to retry"
+      : st.state === "syncing" && !st.at ? "Syncing…"
+      : `Synced · ${ago(st.at)}`;
+    return `<span class="sdot ${cls}"></span>${txt}`;
+  }
+  function paintSync() { const b = $("#syncbar"); if (b) b.innerHTML = syncText(); }
+  setInterval(paintSync, 20000);
 
   /* ---------------------------------------------------------------- Today */
   function viewToday() {
@@ -401,6 +431,9 @@
             ${kv("Owner", v.owner ? personName(v.owner) : "")}${kv("Introduced by", v.introducer ? personName(v.introducer) : "")}
             ${kv("Notes", v.notes)}
           </dl>
+          <p class="updated">${v.updated_by && personById(v.updated_by)
+            ? `Last updated by <b>${esc(personById(v.updated_by).name)}</b> · ${esc(stamp(v.updated_at))}`
+            : v.updated_by ? `Last updated ${esc(stamp(v.updated_at))}` : `Imported from our venue sheets and email history${v.updated_at ? " · " + esc(stamp(v.updated_at)) : ""}`}</p>
           ${isAdmin ? `<div id="del-zone"><button class="btn danger" type="button" data-act="del-venue-ask" data-id="${v.id}" style="margin-top:8px">Delete venue</button></div>` : ""}
         </section>
       </div>`;
@@ -639,9 +672,126 @@
         <p class="muted" style="margin:0">${S.me.role === "admin" ? "Admin: can add, edit and delete venues." : "Can add and edit venues and log activity. Only Kanesh can delete venues."}</p>
         <div class="field"><span>Appearance</span><div class="seg">${[["auto", "Match phone"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<label><input type="radio" name="theme" value="${k}" ${t === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div></div>
         <div class="field"><span>Install on your phone</span>${installHelp()}</div>
-        ${S.mode === "demo" ? "" : `<button class="btn" type="button" data-act="signout">Sign out</button>`}`,
+        <div class="field"><span>Your PIN</span><button class="btn" type="button" data-act="change-pin">Change my PIN</button></div>
+        <div class="field"><span>Backup</span><button class="btn" type="button" data-act="backup">${I.download}Download everything (Excel)</button>
+          <span class="hint">All venues and their full history in one spreadsheet.</span></div>
+        ${S.me.role === "admin" ? `<div class="field"><span>Team</span><button class="btn" type="button" data-act="team">Manage team and PINs</button></div>` : ""}
+        ${S.mode === "demo" ? "" : `<button class="btn ghost" type="button" data-act="signout">Sign out of this phone</button>`}`,
       bind(sheet) { sheet.querySelectorAll("input[name=theme]").forEach(r => r.onchange = () => applyTheme(r.value)); },
     });
+  }
+
+  /* ---------------------------------------------------------------- PIN, team, backup */
+  function changePinSheet() {
+    openSheet({
+      html: `${head("Change my PIN")}
+        <form novalidate>
+          <label class="field"><span>New 6-digit PIN</span><input name="a" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6" pattern="[0-9]{6}" required></label>
+          <label class="field"><span>Type it again</span><input name="b" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6" pattern="[0-9]{6}" required></label>
+          <p class="error" role="alert"></p>
+          <button class="btn primary block" type="submit">Save PIN</button>
+        </form>`,
+      bind(sheet) {
+        const f = $("form", sheet);
+        f.onsubmit = e => {
+          e.preventDefault();
+          const a = f.a.value.trim(), b = f.b.value.trim(), err = $(".error", f);
+          if (!/^[0-9]{6}$/.test(a)) { err.textContent = "Use exactly 6 numbers."; return; }
+          if (a !== b) { err.textContent = "Those two don't match. Try again."; return; }
+          guard($("button[type=submit]", f), async () => { await S.changePin(a); closeSheet(); toast("PIN changed. Use it next time you sign in."); });
+        };
+      },
+    });
+  }
+
+  function teamSheet() {
+    const me = S.me;
+    const rows = people().filter(p => p.id).map(p => `<div class="team-row">
+        ${av(p.initials)}<div class="tm"><b>${esc(p.name)}${p.role === "admin" ? ' <span class="tag2">Admin</span>' : ""}</b>
+        <small>${esc(p.title || "")}${p.title ? " · " : ""}${p.pin_set ? "PIN set" : '<span class="wait">Hasn\'t chosen a PIN yet</span>'}</small></div>
+        <div class="tm-acts">
+          <button class="btn ghost" type="button" data-act="person-edit" data-pid="${p.id}">Edit</button>
+          ${p.pin_set ? `<button class="btn ghost" type="button" data-act="pin-reset" data-pid="${p.id}">Reset PIN</button>` : ""}
+          ${p.id !== me.id ? `<button class="btn ghost danger-t" type="button" data-act="person-remove" data-pid="${p.id}">Remove</button>` : ""}
+        </div></div>`).join("");
+    openSheet({
+      html: `${head("Team")}
+        <p class="muted" style="margin:0">Everyone picks their own PIN the first time they tap their name. <b>Reset PIN</b> signs that person out and lets them choose a new one, for a forgotten PIN or a new phone.</p>
+        <div class="team">${rows}</div>
+        <button class="btn" type="button" data-act="person-edit">${I.plus}Add a person</button>`,
+    });
+  }
+
+  function personSheet(p) {
+    const isNew = !p;
+    p = p || { name: "", initials: "", title: "", role: "member" };
+    openSheet({
+      html: `${head(isNew ? "Add a person" : "Edit " + esc(p.name))}
+        <form novalidate>
+          <label class="field"><span>Name</span><input name="name" value="${esc(p.name)}" required autocomplete="off"></label>
+          <label class="field"><span>Initials</span><input name="initials" value="${esc(p.initials)}" maxlength="3" autocomplete="off"><span class="hint">2 or 3 letters, shown on venues they own.</span></label>
+          <label class="field"><span>What they do</span><input name="title" value="${esc(p.title || "")}" placeholder="e.g. Introductions" autocomplete="off"></label>
+          <div class="field"><span>Access</span><div class="seg">${[["member", "Member: add and edit"], ["admin", "Admin: also delete and manage team"]].map(([k, l]) => `<label><input type="radio" name="role" value="${k}" ${p.role === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div></div>
+          ${isNew ? `<p class="muted" style="margin:0;font-size:13.5px">They'll appear on the sign-in screen. Send them the CRM link; the first time they tap their name they choose their own PIN.</p>` : ""}
+          <p class="error" role="alert"></p>
+          <button class="btn primary block" type="submit">${isNew ? "Add to the team" : "Save"}</button>
+        </form>`,
+      bind(sheet) {
+        const f = $("form", sheet);
+        f.onsubmit = e => {
+          e.preventDefault();
+          if (!f.name.value.trim()) { $(".error", f).textContent = "Add a name."; return; }
+          guard($("button[type=submit]", f), async () => {
+            await S.savePerson({ id: p.id, name: f.name.value.trim(), initials: f.initials.value.trim().toUpperCase(), title: f.title.value.trim(), role: f.role.value });
+            toast(isNew ? `Added <b>${esc(f.name.value.trim())}</b>. Send them the link.` : "Saved");
+            teamSheet();
+          });
+        };
+      },
+    });
+  }
+
+  let xlsxLoading = null;
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve();
+    return xlsxLoading = xlsxLoading || new Promise((ok, bad) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      sc.onload = ok; sc.onerror = () => { xlsxLoading = null; bad(new Error("Couldn't load the spreadsheet tool. Check your connection.")); };
+      document.head.appendChild(sc);
+    });
+  }
+  async function downloadBackup() {
+    await loadXlsx();
+    const names = new Map(S.venues.map(v => [v.id, v.name]));
+    const venues = [...S.venues].sort((a, b) => a.name.localeCompare(b.name)).map(v => ({
+      "Venue": v.name, "City": v.city, "Area": v.area || "", "Stage": STAGE[v.stage]?.t || v.stage, "Type": v.venue_type || "", "Group": v.grp || "",
+      "Contact": v.contact_name || "", "Contact role": v.contact_role || "", "Phone": v.phone || "", "Email": v.email || "",
+      "Instagram": v.instagram || "", "Website": v.website || "", "Address": v.address || "",
+      "Priority": v.priority || "", "Fit": v.fit || "", "Uses today": v.current_system || "",
+      "Owner": v.owner ? personName(v.owner) : "", "Introduced by": v.introducer ? personName(v.introducer) : "",
+      "Next step": v.next_step || "", "Next date": v.next_date || "", "Notes": v.notes || "",
+      "Last updated": stamp(v.updated_at), "Updated by": personById(v.updated_by)?.name || "", "CRM id": v.id,
+    }));
+    const hist = [...S.activities].sort((a, b) => (b.happened_on || "").localeCompare(a.happened_on || "")).map(a => ({
+      "Date": a.happened_on, "Venue": names.get(a.venue_id) || "", "Channel": a.channel, "What happened": a.summary, "By": personName(a.author), "Venue CRM id": a.venue_id,
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet(venues), ws2 = XLSX.utils.json_to_sheet(hist);
+    ws1["!cols"] = Object.keys(venues[0] || {}).map(k => ({ wch: ["Venue", "Address", "Notes", "Next step"].includes(k) ? 34 : 14 }));
+    ws2["!cols"] = [{ wch: 11 }, { wch: 30 }, { wch: 11 }, { wch: 70 }, { wch: 10 }, { wch: 8 }];
+    XLSX.utils.book_append_sheet(wb, ws1, "Venues");
+    XLSX.utils.book_append_sheet(wb, ws2, "History");
+    const name = `BottleBank-CRM-backup-${today()}.xlsx`;
+    const blob = new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const file = new File([blob], name, { type: blob.type });
+    const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+    if (standalone && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === "AbortError") return; }
+    }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    toast(`Downloaded <b>${esc(name)}</b>`);
   }
 
   /* ---------------------------------------------------------------- clicks */
@@ -659,6 +809,21 @@
       case "install": if (installEvt) { const ev = installEvt; ev.prompt(); ev.userChoice.finally(() => { installEvt = null; closeSheet(); render(); }); } return;
       case "install-hide": prefs.installHidden = true; savePrefs(); render(); return;
       case "signout": S.signOut(); return;
+      case "resync": S.load().catch(() => {}); paintSync(); return;
+      case "change-pin": changePinSheet(); return;
+      case "backup": guard(el, async () => { el.disabled = true; try { await downloadBackup(); } finally { el.disabled = false; } }); return;
+      case "team": teamSheet(); return;
+      case "person-edit": personSheet(el.dataset.pid ? people().find(p => p.id === el.dataset.pid) : null); return;
+      case "pin-reset": case "person-remove": {
+        const p = people().find(x => x.id === el.dataset.pid); if (!p) return;
+        if (!el.dataset.sure) { el.dataset.sure = "1"; el.textContent = act === "pin-reset" ? "Tap again to reset" : "Tap again to remove"; return; }
+        guard(el, async () => {
+          if (act === "pin-reset") { await S.resetPin(p.id); toast(`<b>${esc(p.name)}</b> can choose a new PIN next time they open the CRM.`); }
+          else { await S.removePerson(p.id); toast(`Removed <b>${esc(p.name)}</b>. Their venues and history stay.`); }
+          teamSheet();
+        });
+        return;
+      }
       case "reset-demo": S.resetDemo(); toast("Preview data reset"); return;
       case "log": logSheet(v); return;
       case "stage": stageSheet(v); return;
@@ -697,48 +862,74 @@
   document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
 
   /* ---------------------------------------------------------------- sign in + boot */
-  /* Sign in: tap your name, then your own 6-digit PIN (the PIN is that person's Supabase password). */
-  const LOGIN_PEOPLE = (window.BB_CONFIG && window.BB_CONFIG.people) || [];
+  /* Sign in: tap your name. First time you choose your own 6-digit PIN; after that you enter it.
+     The PIN is that person's Supabase password; the email is only a login name. */
+  const LOGIN_FALLBACK = ((window.BB_CONFIG && window.BB_CONFIG.people) || []).map(p => ({ ...p, title: p.role, pin_set: true }));
   const AV_BG = { KN: "#2DD4BF", TP: "#A7F3E4", SJ: "#F2F4F3" };
-  function signInScreen(msg) {
-    app.innerHTML = `<div class="pin-screen gutter"><div class="pin-in">
-      <span class="logo">${LOGO}<span class="tag">CRM</span></span>
-      <div><h1>Who's signing in?</h1><p>Tap your name, then enter your 6-digit PIN.</p></div>
-      <div class="people">${LOGIN_PEOPLE.map((p, i) => `<button class="person" type="button" data-person="${i}">
+  let loginPeople = null;
+  async function signInScreen(msg) {
+    const frame = inner => `<div class="pin-screen gutter"><div class="pin-in">
+      <span class="logo">${LOGO}<span class="tag">CRM</span></span>${inner}</div></div>`;
+    if (!loginPeople) {
+      app.innerHTML = frame(`<div><h1>Who's signing in?</h1><p>Loading the team…</p></div>`);
+      try { loginPeople = await S.listPeople(); } catch (e) { console.error(e); loginPeople = LOGIN_FALLBACK; }
+    }
+    app.innerHTML = frame(`
+      <div><h1>Who's signing in?</h1><p>Tap your name. The first time, you'll choose your own 6-digit PIN.</p></div>
+      <div class="people">${loginPeople.map((p, i) => `<button class="person" type="button" data-person="${i}">
         <span class="pav" style="background:${AV_BG[p.initials] || "#2DD4BF"}">${esc(p.initials)}</span>
-        <span><b>${esc(p.name)}</b><small>${esc(p.role || "")}</small></span><span class="chev" aria-hidden="true">›</span></button>`).join("")}</div>
+        <span><b>${esc(p.name)}</b><small>${esc(p.title || "")}${p.pin_set ? "" : `${p.title ? " · " : ""}<em>Set up your PIN</em>`}</small></span><span class="chev" aria-hidden="true">›</span></button>`).join("")}</div>
       ${msg ? `<p class="pin-err" role="alert">${esc(msg)}</p>` : ""}
-      <p class="pin-foot">You only do this once. You stay signed in on this phone.</p>
-    </div></div>`;
-    app.querySelectorAll("[data-person]").forEach(b => b.onclick = () => pinScreen(LOGIN_PEOPLE[Number(b.dataset.person)]));
+      <p class="pin-foot">You only do this once. You stay signed in on this phone.</p>`);
+    app.querySelectorAll("[data-person]").forEach(b => b.onclick = () => pinScreen(loginPeople[Number(b.dataset.person)]));
   }
   function pinScreen(person) {
-    let pin = "", busy = false;
+    let pin = "", first = "", busy = false;
+    let step = person.pin_set ? "enter" : "choose";      // enter | choose | confirm
+    const LABEL = { enter: "Enter your PIN", choose: "Choose a 6-digit PIN", confirm: "Type the same PIN again" };
     app.innerHTML = `<div class="pin-screen gutter"><div class="pin-in">
       <span class="logo">${LOGO}<span class="tag">CRM</span></span>
       <div class="who"><span class="pav big" style="background:${AV_BG[person.initials] || "#2DD4BF"}">${esc(person.initials)}</span>
-        <div><h1>Hi ${esc(person.name)}</h1><p id="pin-msg">Enter your PIN</p></div></div>
+        <div><h1>Hi ${esc(person.name)}</h1><p id="pin-msg">${LABEL[step]}</p></div></div>
       <div class="dots" id="dots" aria-live="polite">${"<span class=\"dot\"></span>".repeat(6)}</div>
       <div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button class="k" type="button" data-k="${n}">${n}</button>`).join("")}
         <button class="k t" type="button" data-k="back">Not you?</button><button class="k" type="button" data-k="0">0</button>
         <button class="k d" type="button" data-k="del" aria-label="Delete">⌫</button></div>
+      ${step === "choose" ? `<p class="pin-foot" id="pin-foot">Pick something only you know. You won't need it again on this phone.</p>` : ""}
     </div></div>`;
     const dots = () => $("#dots").querySelectorAll(".dot").forEach((d, i) => d.classList.toggle("on", i < pin.length));
-    const press = async k => {
+    const say = (t, bad) => { const m = $("#pin-msg"); m.textContent = t; m.classList.toggle("bad", !!bad); };
+    const shake = () => { const d = $("#dots"); d.classList.remove("shake"); void d.offsetWidth; d.classList.add("shake"); };
+    const done = () => { document.removeEventListener("keydown", onKey); loginPeople = null; render(); };
+    async function submit() {
+      if (step === "choose") { first = pin; pin = ""; step = "confirm"; dots(); return say(LABEL.confirm); }
+      busy = true;
+      try {
+        if (step === "confirm") {
+          if (pin !== first) { busy = false; pin = ""; first = ""; step = "choose"; dots(); shake(); return say("Those didn't match. Choose your PIN again.", true); }
+          say("Saving your PIN…");
+          const ok = await S.firstPin(person.email, pin);
+          if (!ok) { busy = false; pin = ""; step = "enter"; person.pin_set = true; dots(); return say("A PIN is already set for you. Enter it.", true); }
+          await S.signIn(person.email, pin);
+          done(); toast("PIN saved. You'll stay signed in on this phone.");
+          return;
+        }
+        say("Signing in…");
+        await S.signIn(person.email, pin);
+        done();
+      } catch (e) {
+        busy = false; pin = ""; dots(); shake();
+        if (step === "confirm") { step = "choose"; first = ""; }
+        say(e.message || "Something went wrong. Try again.", true);
+      }
+    }
+    const press = k => {
       if (busy) return;
       if (k === "back") { document.removeEventListener("keydown", onKey); return signInScreen(); }
       if (k === "del") { pin = pin.slice(0, -1); return dots(); }
       if (pin.length >= 6) return;
       pin += k; dots();
-      if (pin.length === 6) {
-        busy = true; $("#pin-msg").textContent = "Signing in…";
-        try { await S.signIn(person.email, pin); document.removeEventListener("keydown", onKey); render(); }
-        catch (e) {
-          busy = false; pin = ""; dots();
-          const m = $("#pin-msg"); m.textContent = /match|invalid/i.test(e.message) ? "Wrong PIN. Try again." : e.message; m.classList.add("bad");
-          $("#dots").classList.remove("shake"); void $("#dots").offsetWidth; $("#dots").classList.add("shake");
-        }
-      }
+      if (pin.length === 6) setTimeout(submit, 120);
     };
     const onKey = e => { if (/^[0-9]$/.test(e.key)) press(e.key); else if (e.key === "Backspace") press("del"); else if (e.key === "Escape") press("back"); };
     document.addEventListener("keydown", onKey);
@@ -750,6 +941,7 @@
     const y = window.scrollY;
     const r = route();
     const qFocused = document.activeElement && document.activeElement.id === "q";
+    paintSync();
     if (r.name === "venues" && $("#vlist")) { renderVenueList(); return; }
     if (qFocused) return;
     render(); window.scrollTo(0, y);

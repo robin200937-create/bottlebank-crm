@@ -1,5 +1,5 @@
 /* Keeps the app shell on the phone so it opens instantly. Venue data always comes live from Supabase. */
-const CACHE = "bb-crm-v1";
+const CACHE = "bb-crm-v2";
 const SHELL = ["./", "index.html", "styles.css", "store.js", "app.js", "config.js", "manifest.webmanifest",
   "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });

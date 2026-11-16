@@ -375,3 +375,27 @@ section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .dots.shake { animation: shake .35s; }
   @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
 }
+
+/* ---------------------------------------------------------------- sync status, last updated, team */
+.syncbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 8px + env(safe-area-inset-bottom, 0px)); z-index: 19;
+  display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text-2); font: 600 11.5px/1.2 var(--f-mono); letter-spacing: .02em; box-shadow: var(--shadow); cursor: pointer; white-space: nowrap; }
+@media (min-width: 900px) { .syncbar { left: auto; right: 20px; transform: none; bottom: 18px; } }
+.sdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.sdot.syncing { background: var(--text-3); animation: pulse 1s ease-in-out infinite; }
+.sdot.error, .sdot.off { background: var(--danger); }
+@keyframes pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .sdot.syncing { animation: none; } }
+main { padding-bottom: calc(var(--tabbar-h) + 64px + env(safe-area-inset-bottom, 0px)); }
+.updated { margin: 10px 2px 0; font-size: 12.5px; color: var(--text-3); }
+.updated b { color: var(--text-2); }
+.team { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); }
+.team-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.team-row:first-child { border-top: 0; }
+.team-row .tm { flex: 1; min-width: 150px; display: flex; flex-direction: column; gap: 3px; }
+.team-row .tm small { color: var(--text-3); font-size: 12.5px; }
+.team-row .tm .wait { color: var(--warn, #B7791F); font-weight: 600; }
+.tm-acts { display: flex; gap: 2px; flex-wrap: wrap; }
+.tm-acts .btn { padding: 6px 8px; font-size: 13px; }
+.btn.ghost.danger-t { color: var(--danger); }
+.person small em { font-style: normal; color: var(--mint); font-weight: 700; }

@@ -9,6 +9,7 @@
     venues: [],
     activities: [],
     online: navigator.onLine,
+    sync: { state: "syncing", at: null },   // syncing | synced | offline | error
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     emit() { listeners.forEach(fn => { try { fn(); } catch (e) { console.error(e); } }); },
   };
@@ -21,9 +22,9 @@
   /* ---------------------------------------------------------------- demo */
   const DEMO_KEY = "bb-crm-demo-v1.1";
   const DEMO_PEOPLE = [
-    { id: "kn", name: "Kanesh", initials: "KN", role: "admin" },
-    { id: "tp", name: "Theepan", initials: "TP", role: "member" },
-    { id: "sj", name: "Sanjay", initials: "SJ", role: "member" },
+    { id: "kn", name: "Kanesh", initials: "KN", role: "admin", title: "Admin", email: "kanesh@crm.bottlebank.io", pin_set: true, sort: 1 },
+    { id: "tp", name: "Theepan", initials: "TP", role: "member", title: "Product and tech", email: "theepan@crm.bottlebank.io", pin_set: true, sort: 2 },
+    { id: "sj", name: "Sanjay", initials: "SJ", role: "member", title: "Introductions", email: "sanjay@crm.bottlebank.io", pin_set: false, sort: 3 },
   ];
   function demoSave() {
     try { localStorage.setItem(DEMO_KEY, JSON.stringify({ venues: S.venues, activities: S.activities, me: S.me.id })); } catch (e) {}
@@ -55,7 +56,18 @@
   let reloadTimer = null;
   function scheduleReload() {
     clearTimeout(reloadTimer);
-    reloadTimer = setTimeout(() => S.load().catch(console.error), 400);
+    reloadTimer = setTimeout(() => S.load().catch(e => { console.error(e); setSync(S.online ? "error" : "offline"); }), 400);
+  }
+  function setSync(state) {
+    if (state === "synced") S.sync = { state, at: new Date() };
+    else S.sync = { state, at: S.sync.at };
+    S.emit();
+  }
+  async function loadPeople() {
+    const { data, error } = await sb.from("profiles").select("*").order("sort").order("name");
+    if (error) throw error;
+    S.people = data;
+    if (S.me) S.me = data.find(p => p.id === S.me.id) || S.me;
   }
 
   /* ---------------------------------------------------------------- API */
@@ -64,6 +76,7 @@
       S.mode = "demo";
       if (!demoSeed) throw new Error("No Supabase details in config.js yet.");
       demoLoad();
+      S.sync = { state: "synced", at: new Date() };
       return true;
     }
     sb = window.supabase.createClient(cfg.url, cfg.anonKey, { auth: { persistSession: true, autoRefreshToken: true } });
@@ -74,22 +87,57 @@
   };
 
   async function afterSignIn(user) {
-    const { data: profs, error } = await sb.from("profiles").select("*");
-    if (error) throw error;
-    S.people = profs;
-    S.me = profs.find(p => p.id === user.id);
-    if (!S.me) throw new Error("This login isn't linked to a CRM profile yet. Ask Kanesh to add you (setup step 2).");
+    await loadPeople();
+    S.me = S.people.find(p => p.id === user.id);
+    if (!S.me) { await sb.auth.signOut(); throw new Error("This login was removed from the CRM. Ask Kanesh."); }
     await S.load();
     sb.channel("crm-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "venues" }, scheduleReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "activities" }, scheduleReload)
-      .subscribe();
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, scheduleReload)
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") scheduleReload();
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setSync(S.online ? "error" : "offline");
+      });
     window.addEventListener("focus", scheduleReload);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleReload(); });
+    setInterval(() => { if (!document.hidden && S.online) scheduleReload(); }, 120000);   // safety net every 2 minutes
   }
+
+  /* Sign-in screen: who's on the team and whether they've picked a PIN yet. */
+  S.listPeople = async function () {
+    if (S.mode === "demo") return DEMO_PEOPLE;
+    const { data, error } = await sb.rpc("crm_people");
+    if (error) throw error;
+    return data;
+  };
+  /* First time only: choose your own PIN. Returns false if a PIN was already set. */
+  S.firstPin = async function (email, pin) {
+    const { data, error } = await sb.rpc("crm_first_pin", { p_email: email, p_pin: pin });
+    if (error) throw error;
+    return data;
+  };
+  S.changePin = async function (pin) {
+    if (S.mode === "demo") return;
+    const { error } = await sb.rpc("crm_change_pin", { p_pin: pin });
+    if (error) throw error;
+  };
+  /* Admin: team management */
+  async function adminCall(fn, args) {
+    if (S.me.role !== "admin") throw new Error("Only Kanesh can change the team.");
+    if (S.mode === "demo") return null;
+    const { data, error } = await sb.rpc(fn, args);
+    if (error) throw new Error(error.message);
+    await loadPeople(); S.emit();
+    return data;
+  }
+  S.resetPin = id => adminCall("crm_reset_pin", { p_id: id });
+  S.savePerson = p => adminCall("crm_save_person", { p_id: p.id || null, p_name: p.name, p_ini: p.initials || null, p_title: p.title || null, p_role: p.role });
+  S.removePerson = id => adminCall("crm_remove_person", { p_id: id });
 
   S.signIn = async function (email, password) {
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message === "Invalid login credentials" ? "That email and password don't match. Check both and try again." : error.message);
+    if (error) throw new Error(error.message === "Invalid login credentials" ? "Wrong PIN. Try again." : error.message);
     await afterSignIn(data.user);
   };
 
@@ -109,10 +157,12 @@
   };
 
   S.load = async function () {
-    if (S.mode === "demo") { S.emit(); return; }
-    const [venues, acts] = await Promise.all([fetchAll("venues", ["id", true]), fetchAll("activities", ["happened_on", false])]);
+    if (S.mode === "demo") { S.sync = { state: "synced", at: new Date() }; S.emit(); return; }
+    if (!S.online) { setSync("offline"); return; }
+    S.sync = { state: "syncing", at: S.sync.at };
+    const [venues, acts] = await Promise.all([fetchAll("venues", ["id", true]), fetchAll("activities", ["happened_on", false]), loadPeople()]);
     S.venues = venues; S.activities = acts;
-    S.emit();
+    setSync("synced");
   };
 
   const VENUE_FIELDS = ["name","grp","city","area","address","venue_type","contact_name","contact_role","phone","email",
@@ -132,7 +182,7 @@
     }
     const { data, error } = await sb.from("venues").insert(row).select().single();
     if (error) throw error;
-    S.venues.push(data); S.emit(); return data;
+    S.venues.push(data); S.sync = { state: "synced", at: new Date() }; S.emit(); return data;
   };
 
   S.updateVenue = async function (id, patch) {
@@ -143,7 +193,7 @@
     }
     const { data, error } = await sb.from("venues").update(row).eq("id", id).select().single();
     if (error) throw error;
-    const i = S.venues.findIndex(x => x.id === id); S.venues[i] = data; S.emit(); return data;
+    const i = S.venues.findIndex(x => x.id === id); S.venues[i] = data; S.sync = { state: "synced", at: new Date() }; S.emit(); return data;
   };
 
   S.deleteVenue = async function (id) {
@@ -167,7 +217,7 @@
     }
     const { data, error } = await sb.from("activities").insert(row).select().single();
     if (error) throw error;
-    S.activities.unshift(data); S.emit(); return data;
+    S.activities.unshift(data); S.sync = { state: "synced", at: new Date() }; S.emit(); return data;
   };
 
   S.deleteActivity = async function (id) {
@@ -183,5 +233,5 @@
   S.canDeleteActivity = a => S.me && (S.me.role === "admin" || a.created_by === S.me.id);
 
   window.addEventListener("online", () => { S.online = true; S.emit(); scheduleReload(); });
-  window.addEventListener("offline", () => { S.online = false; S.emit(); });
+  window.addEventListener("offline", () => { S.online = false; setSync("offline"); });
 })();
