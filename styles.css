@@ -40,8 +40,9 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 500 15px/1.45 var(--f-ui); -webkit-font-smoothing: antialiased; }
+html { height: 100%; background: var(--ink); }
+body { min-height: 100%; }
+body { margin: 0; padding-top: env(safe-area-inset-top, 0px); background: var(--bg); color: var(--text); font: 500 15px/1.45 var(--f-ui); -webkit-font-smoothing: antialiased; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--ink); }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent); }

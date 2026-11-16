@@ -195,10 +195,12 @@
 
   /* ---------------------------------------------------------------- Today */
   function viewToday() {
-    const h = new Date().getHours();
-    const hi = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-    const d = new Date();
-    const dateLine = `${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}`;
+    // Always Singapore time, whatever the phone's clock is set to.
+    const sg = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Singapore", hour: "numeric", hourCycle: "h23", weekday: "long", day: "numeric", month: "short" })
+      .formatToParts(new Date()).map(x => [x.type, x.value]));
+    const h = Number(sg.hour);
+    const hi = h >= 5 && h < 12 ? "Good morning" : h >= 12 && h < 17 ? "Good afternoon" : h >= 17 && h < 22 ? "Good evening" : "Good night";
+    const dateLine = `${sg.weekday} ${sg.day} ${sg.month}`;
     const mine = v => !todayMine || v.owner === S.me.initials;
     const counts = Object.fromEntries(ALL.map(s => [s.k, 0]));
     S.venues.forEach(v => { counts[v.stage] = (counts[v.stage] || 0) + 1; });
@@ -936,12 +938,22 @@
     app.querySelectorAll("[data-k]").forEach(b => b.onclick = () => press(b.dataset.k));
   }
 
+  // Only redraw the screen when the data actually changed; a sync tick just updates the pill.
+  let lastKey = "";
+  const dataKey = () => {
+    let mu = ""; for (const v of S.venues) if ((v.updated_at || "") > mu) mu = v.updated_at;
+    let ma = 0; for (const a of S.activities) if (a.id > ma) ma = a.id;
+    return [S.venues.length, mu, S.activities.length, ma, (S.people || []).map(p => p.id + p.name + p.role + p.pin_set).join(), S.me && S.me.id, S.online].join("|");
+  };
   S.onChange(() => {
     if (!S.me) return;
+    paintSync();
+    const key = dataKey();
+    if (key === lastKey && $("#view")) return;
+    lastKey = key;
     const y = window.scrollY;
     const r = route();
     const qFocused = document.activeElement && document.activeElement.id === "q";
-    paintSync();
     if (r.name === "venues" && $("#vlist")) { renderVenueList(); return; }
     if (qFocused) return;
     render(); window.scrollTo(0, y);
