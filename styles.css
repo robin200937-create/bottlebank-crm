@@ -400,3 +400,7 @@ main { padding-bottom: calc(var(--tabbar-h) + 64px + env(safe-area-inset-bottom,
 .tm-acts .btn { padding: 6px 8px; font-size: 13px; }
 .btn.ghost.danger-t { color: var(--danger); }
 .person small em { font-style: normal; color: var(--mint); font-weight: 700; }
+
+/* iPhone: keep the header clear of the status bar's blur */
+.topbar { padding-top: 12px; }
+.topbar-in { height: 52px; }
