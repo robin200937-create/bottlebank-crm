@@ -21,6 +21,15 @@
   const ALL = [...STAGES, ...SIDE];
   const STAGE = Object.fromEntries(ALL.map(s => [s.k, s]));
   const ACTIVE = ["talking", "meeting", "quote", "trial", "hold"];
+  // Five simple groups everyone sees; the detailed stage stays on each venue.
+  const GROUPS = [
+    { k: "talks",   e: "🔥", t: "In talks",          stages: ["talking", "meeting", "quote", "trial"], d: "Interested. Push these forward." },
+    { k: "waiting", e: "", t: "Waiting for reply", stages: ["contacted"], d: "We reached out. Nudge them or try another channel." },
+    { k: "new",     e: "", t: "Not contacted yet", stages: ["lead"], d: "On the list. Nobody has reached out." },
+    { k: "clients", e: "", t: "Clients",           stages: ["client"], d: "Live and paying." },
+    { k: "parked",  e: "", t: "Parked",            stages: ["hold", "lost", "unreachable", "closed"], d: "On hold, said no, can't reach, or closed." },
+  ];
+  const groupOf = stage => (GROUPS.find(g => g.stages.includes(stage)) || GROUPS[4]).k;
   const CHANNELS = ["Visit", "Call", "WhatsApp", "Email", "Instagram", "Meeting", "Demo", "Note"];
   const PEOPLE_FALLBACK = [{ initials: "KN", name: "Kanesh" }, { initials: "TP", name: "Theepan" }, { initials: "SJ", name: "Sanjay" }];
   const PRIORITY = ["Image", "High", "Medium", "Low"];
@@ -87,6 +96,7 @@
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>',
     back: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+    filter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h3.5l1.8 4.5-2.3 1.4a11 11 0 0 0 6.1 6.1l1.4-2.3L20 15.5V19a1.5 1.5 0 0 1-1.6 1.5C10.6 20 4 13.4 3.5 5.6A1.5 1.5 0 0 1 5 4Z"/></svg>',
@@ -121,7 +131,9 @@
   /* ---------------------------------------------------------------- state */
   const prefs = (() => { try { return JSON.parse(localStorage.getItem("bb-crm-prefs") || "{}"); } catch (e) { return {}; } })();
   const savePrefs = () => { try { localStorage.setItem("bb-crm-prefs", JSON.stringify(prefs)); } catch (e) {} };
-  const F = Object.assign({ q: "", tab: "prospects", stage: "all", city: "all", owner: "all", prio: "all", reach: "all", sort: "name", limit: 80 }, prefs.filters2 || {}, { q: "", limit: 80 });
+  const F = Object.assign({ q: "", city: "SG", by: "stage", owner: "all", prio: "all", reach: "all", sort: "name", open: { talks: true } }, prefs.filters3 || {}, { q: "" });
+  const saveF = () => { prefs.filters3 = { ...F, q: "" }; savePrefs(); };
+  const shown = {};   // how many rows each open group shows
   let todayMine = !!prefs.todayMine;
   applyTheme(prefs.theme || "auto");
 
@@ -155,19 +167,18 @@
     app.innerHTML = `${LEVEL_DEFS}
       <header class="topbar gutter"><div class="topbar-in">
         <a class="logo" href="#today">${LOGO}<span class="tag">CRM</span></a>
-        <nav class="topnav">${nav("today", "Today")}${nav("venues", "Venues")}${nav("guide", "How it works")}</nav>
+        <nav class="topnav">${nav("today", "Today")}${nav("venues", "Venues")}</nav>
         <span class="spacer"></span>
+        <button class="syncdot" id="syncbar" type="button" data-act="resync" aria-live="polite">${syncText()}</button>
         <button class="btn primary add-top" type="button" data-act="add">${I.plus}Add venue</button>
         <button class="me" type="button" data-act="me" aria-label="Your account">${av(S.me.initials)}<span class="me-name">${esc(S.me.name)}</span></button>
       </div></header>
       ${demo}${off}${installBanner()}
       <main class="gutter" id="view"></main>
-      <button class="syncbar" id="syncbar" type="button" data-act="resync" aria-live="polite">${syncText()}</button>
       <nav class="tabbar" aria-label="Main"><div class="tabbar-in">
         <a href="#today" ${r.name === "today" ? 'aria-current="page"' : ""}>${I.today}Today</a>
         <a href="#venues" ${r.name === "venues" || r.name === "venue" ? 'aria-current="page"' : ""}>${I.venues}Venues</a>
         <button class="add" type="button" data-act="add"><span class="plus">${I.plus}</span>Add</button>
-        <a href="#guide" ${r.name === "guide" ? 'aria-current="page"' : ""}>${I.guide}Guide</a>
       </div></nav>`;
     const view = $("#view");
     if (r.name === "today") view.innerHTML = viewToday();
@@ -176,8 +187,7 @@
     else view.innerHTML = viewVenue(r.id);
     const du = $("#demo-user"); if (du) du.onchange = () => S.switchDemoUser(du.value);
     const q = $("#q");
-    if (q) { q.value = F.q; q.oninput = () => { F.q = q.value; F.limit = 80; renderVenueList(); }; }
-    document.querySelectorAll("[data-filter]").forEach(sel => sel.onchange = () => { F[sel.dataset.filter] = sel.value; F.limit = 80; prefs.filters2 = { ...F }; savePrefs(); renderVenueList(); });
+    if (q) { q.value = F.q; q.oninput = () => { F.q = q.value; renderVenueList(); }; }
   }
 
   /* ---------------------------------------------------------------- sync status */
@@ -188,7 +198,8 @@
       : st.state === "error" ? "Not synced · tap to retry"
       : st.state === "syncing" && !st.at ? "Syncing…"
       : `Synced · ${ago(st.at)}`;
-    return `<span class="sdot ${cls}"></span>${txt}`;
+    const short = !S.online ? "Offline" : st.state === "error" ? "Not synced" : st.state === "syncing" && !st.at ? "Syncing" : "Synced";
+    return `<span class="sdot ${cls}"></span><span class="st-s">${short}</span><span class="st-l">${txt}</span>`;
   }
   function paintSync() { const b = $("#syncbar"); if (b) b.innerHTML = syncText(); }
   setInterval(paintSync, 20000);
@@ -200,68 +211,84 @@
       .formatToParts(new Date()).map(x => [x.type, x.value]));
     const h = Number(sg.hour);
     const hi = h >= 5 && h < 12 ? "Good morning" : h >= 12 && h < 17 ? "Good afternoon" : h >= 17 && h < 22 ? "Good evening" : "Good night";
-    const dateLine = `${sg.weekday} ${sg.day} ${sg.month}`;
     const mine = v => !todayMine || v.owner === S.me.initials;
-    const counts = Object.fromEntries(ALL.map(s => [s.k, 0]));
-    S.venues.forEach(v => { counts[v.stage] = (counts[v.stage] || 0) + 1; });
     const t7 = ymd(new Date(Date.now() + 7 * 86400000));
-    const due = S.venues.filter(v => v.next_date && v.next_date <= t7 && mine(v) && !["lost", "closed"].includes(v.stage))
-      .sort((a, b) => a.next_date.localeCompare(b.next_date));
-    const later = S.venues.filter(v => v.next_date && v.next_date > t7 && mine(v)).sort((a, b) => a.next_date.localeCompare(b.next_date));
+    const open = v => !["lost", "closed", "client"].includes(v.stage);
+    // One to-do list: late and due first, then venues in play with no next step
+    const due = S.venues.filter(v => v.next_date && v.next_date <= t7 && mine(v) && open(v)).sort((a, b) => a.next_date.localeCompare(b.next_date));
     const noNext = S.venues.filter(v => ACTIVE.includes(v.stage) && !v.next_date && mine(v));
+    const todo = [...due, ...noNext];
+    const later = S.venues.filter(v => v.next_date && v.next_date > t7 && mine(v)).sort((a, b) => a.next_date.localeCompare(b.next_date));
     const lateN = due.filter(v => v.next_date < today()).length;
-    const recent = [...S.activities].sort((a, b) => (b.created_at || b.happened_on || "").localeCompare(a.created_at || a.happened_on || "")).slice(0, 12);
+    const showAll = !!prefs.todoAll;
 
-    const summary = [
-      due.length ? `${due.length} follow-up${due.length > 1 ? "s" : ""} this week` : "No follow-ups due this week",
-      lateN ? `${lateN} late` : "",
-    ].filter(Boolean).join(" · ");
+    const stat = k => {
+      const g = GROUPS.find(x => x.k === k), vs = S.venues.filter(v => g.stages.includes(v.stage));
+      const sgN = vs.filter(v => v.city === "SG").length;
+      return `<button class="stat st-${k}" type="button" data-act="goto-group" data-g="${k}">
+        <span class="sn num">${vs.length}</span><span class="stt">${g.e ? g.e + " " : ""}${g.t}</span>
+        <span class="sc num">SG ${sgN} · KL ${vs.length - sgN}</span></button>`;
+    };
 
     return `
-      <div class="page-head"><div><h1>${hi}, ${esc(S.me.name)}</h1><p>${dateLine} · ${summary}</p></div>
+      <div class="page-head"><div><h1>${hi}, ${esc(S.me.name)}</h1>
+        <p>${sg.weekday} ${sg.day} ${sg.month} · ${todo.length ? `${todo.length} to do${lateN ? ` · <b class="late-t">${lateN} late</b>` : ""}` : "Nothing to do right now"}</p></div>
         <div class="showing"><span class="label">Showing</span>
-          <div class="seg2" role="group" aria-label="Whose follow-ups">
+          <div class="seg2" role="group" aria-label="Whose to-dos">
             <button type="button" data-act="today-mine" data-v="0" aria-pressed="${!todayMine}">${!todayMine ? "✓ " : ""}Everyone</button>
             <button type="button" data-act="today-mine" data-v="1" aria-pressed="${todayMine}">${todayMine ? "✓ " : ""}Mine</button>
           </div></div></div>
 
-      <section aria-label="Pipeline">
-        <div class="sec-head"><h2>Pipeline</h2><span class="count num">${S.venues.length} venues</span></div>
-        <div class="funnel">${STAGES.map(s => `<a class="fstep ${s.k === "client" ? "client" : ""}" href="#venues" data-act="goto-stage" data-stage="${s.k}">
-            ${level(s.k)}<span class="n">${counts[s.k] || 0}</span><span class="t">${s.t}</span></a>`).join("")}</div>
-        <div class="side-stages">${SIDE.map(s => `<a href="#venues" data-act="goto-stage" data-stage="${s.k}">${s.t} <b>${counts[s.k] || 0}</b></a>`).join("")}</div>
-      </section>
+      <div class="stats">${stat("clients")}${stat("talks")}${stat("waiting")}</div>
 
       <section>
-        <div class="sec-head"><h2>Follow-ups due</h2><span class="count num">${due.length}</span></div>
-        <div class="list">${due.length ? due.map(rowFollow).join("") : `<div class="empty">Nothing due in the next 7 days${todayMine ? " for you" : ""}. When you log a touch, set a next step and it shows up here.</div>`}</div>
+        <div class="sec-head"><h2>To do</h2><span class="count num">${todo.length}</span></div>
+        <div class="list">${todo.length ? (showAll ? todo : todo.slice(0, 5)).map(rowTodo).join("")
+          : `<div class="empty">All clear${todayMine ? " for you" : ""}. When you log a touch, set a next step with a date and it shows up here.</div>`}
+          ${todo.length > 5 ? `<button class="list-more" type="button" data-act="todo-all">${showAll ? "Show less" : `Show all ${todo.length}`}</button>` : ""}</div>
       </section>
-
-      ${noNext.length ? `<section>
-        <div class="sec-head"><h2>Needs a next step</h2><span class="count num">${noNext.length}</span></div>
-        <p class="muted" style="margin:0;font-size:14px">These are in play but nobody has set what happens next.</p>
-        <div class="list">${noNext.map(rowFollow).join("")}</div></section>` : ""}
 
       ${later.length ? `<section>
-        <div class="sec-head"><h2>Coming up later</h2><span class="count num">${later.length}</span></div>
-        <div class="list">${later.slice(0, 8).map(rowFollow).join("")}</div></section>` : ""}
+        <div class="sec-head"><h2>Coming up</h2><span class="count num">${later.length}</span></div>
+        <div class="list">${later.slice(0, 3).map(rowTodo).join("")}</div></section>` : ""}
 
       <section>
-        <div class="sec-head"><h2>Latest from the team</h2></div>
-        <div class="list feed">${recent.map(a => {
-          const v = byId(a.venue_id); if (!v) return "";
-          return `<div class="item">${av(a.author, true)}<div class="what"><a href="#venue-${v.id}">${esc(v.name)}</a> · ${esc(a.summary)}
-            <div class="meta">${esc(personName(a.author))} · ${esc(a.channel)} · ${fmt(a.happened_on)}</div></div></div>`;
-        }).join("")}</div>
+        <div class="sec-head"><h2>Team activity</h2></div>
+        <div class="list feed">${teamFeed().slice(0, 6).join("")}</div>
       </section>`;
   }
 
-  function rowFollow(v) {
+  // A next-step row: what to do, for which venue, when
+  function rowTodo(v) {
     const w = when(v.next_date);
     return `<a class="row" href="#venue-${v.id}">${level(v.stage)}
       <span class="main"><span class="name">${esc(v.name)} ${cityTag(v.city)}</span>
-        <span class="sub">${esc(v.next_step || "No next step written")}</span></span>
-      <span class="right"><span class="when num ${w.c}">${esc(w.t || STAGE[v.stage]?.t || "")}</span>${av(v.owner, true)}</span></a>`;
+        <span class="sub ${v.next_step ? "" : "warn-t"}">${esc(v.next_step || "Set a next step")}</span></span>
+      <span class="right"><span class="when num ${w.c}">${esc(w.t || "No date")}</span>${av(v.owner, true)}</span></a>`;
+  }
+
+  // Team activity: bulk sends (same person, channel, day, wording) fold into one line
+  function teamFeed() {
+    const acts = [...S.activities].sort((a, b) => (b.happened_on || "").localeCompare(a.happened_on || "") || (b.id || 0) - (a.id || 0));
+    const bulk = new Map();
+    for (const a of acts) { const k = [a.author, a.channel, a.happened_on, a.summary].join("|"); bulk.set(k, (bulk.get(k) || 0) + 1); }
+    const out = [], seen = new Set();
+    for (const a of acts) {
+      const k = [a.author, a.channel, a.happened_on, a.summary].join("|");
+      const n = bulk.get(k);
+      if (n >= 3) {
+        if (seen.has(k)) continue; seen.add(k);
+        const what = /follow-up/i.test(a.summary) ? "follow-ups" : /intro/i.test(a.summary) ? "intros" : "messages";
+        out.push(`<div class="item">${av(a.author, true)}<div class="what"><b>${esc(personName(a.author))}</b> sent ${n} ${esc(a.channel)} ${what}
+          <div class="meta">${esc(a.summary.replace(/ \(round \d\)\.?$/, ""))} · ${fmt(a.happened_on)}</div></div></div>`);
+      } else {
+        const v = byId(a.venue_id); if (!v) continue;
+        out.push(`<div class="item">${av(a.author, true)}<div class="what"><a href="#venue-${v.id}">${esc(v.name)}</a> · ${esc(a.summary)}
+          <div class="meta">${esc(personName(a.author))} · ${esc(a.channel)} · ${fmt(a.happened_on)}</div></div></div>`);
+      }
+      if (out.length >= 12) break;
+    }
+    return out;
   }
 
   /* ---------------------------------------------------------------- Venues */
@@ -302,34 +329,37 @@
   }
 
   function viewVenues() {
-    const opt = (k, v, l) => `<option value="${esc(v)}" ${F[k] === v ? "selected" : ""}>${esc(l)}</option>`;
-    const tab = TABS.find(t => t.k === F.tab) || TABS[0];
+    const nSG = S.venues.filter(v => v.city === "SG").length;
+    const nf = activeFilters().length;
     return `
-      <div class="page-head"><div><h1>Venues</h1><p id="vcount" class="num"></p></div>
-        <div class="tabs" role="tablist" aria-label="Venue groups" id="vtabs"></div></div>
-      <div class="toolbar">
-        <label class="search">${I.search}<input id="q" type="search" placeholder="Search venue, group, area, contact, phone" autocomplete="off" aria-label="Search venues"></label>
-        <div class="filters">
-          <select data-filter="city" aria-label="City">${opt("city", "all", "SG + KL")}${opt("city", "SG", "Singapore")}${opt("city", "KL", "KL")}</select>
-          <select data-filter="stage" aria-label="Stage">${opt("stage", "all", "Any stage")}${tab.stages.map(k => opt("stage", k, STAGE[k].t)).join("")}</select>
-          <select data-filter="reach" aria-label="Contact">${opt("reach", "all", "Any contact")}${opt("reach", "none", "Not contacted at all")}${REACH.map(r => opt("reach", "no-" + r.k, r.k === "met" ? "Not met or called yet" : "Not on " + r.t + " yet")).join("")}${opt("reach", "fail", "Bounced or failed")}</select>
-          <select data-filter="owner" aria-label="Owner">${opt("owner", "all", "Any owner")}${people().map(p => opt("owner", p.initials, p.name)).join("")}${opt("owner", "none", "No owner")}</select>
-          <select data-filter="prio" aria-label="Priority">${opt("prio", "all", "Any priority")}${PRIORITY.map(p => opt("prio", p, p === "Image" ? "Image (big name)" : p)).join("")}</select>
-          <select data-filter="sort" aria-label="Sort">${opt("sort", "name", "A to Z")}${opt("sort", "stage", "Furthest along first")}${opt("sort", "next", "Next step date")}${opt("sort", "recent", "Last contact")}</select>
-        </div>
-        <p class="legend"><span class="tick t-done"><span class="tm">✓</span></span> done <span class="tick t-fail"><span class="tm">!</span></span> bounced or failed <span class="tick t-open"><span class="tm">○</span></span> not yet <span class="tick t-none"><span class="tm">–</span></span> no contact details</p>
+      <div class="page-head"><div><h1>Venues</h1><p class="num">${S.venues.length} venues · ${nSG} in Singapore, ${S.venues.length - nSG} in KL</p></div></div>
+      <div class="seg2 city-seg" role="group" aria-label="City">
+        <button type="button" data-act="city" data-v="SG" aria-pressed="${F.city === "SG"}">Singapore <span class="c">${nSG}</span></button>
+        <button type="button" data-act="city" data-v="KL" aria-pressed="${F.city === "KL"}">KL <span class="c">${S.venues.length - nSG}</span></button>
       </div>
-      <div class="vtable-wrap" id="vlist"></div>`;
+      <div class="toolbar2">
+        <label class="search">${I.search}<input id="q" type="search" placeholder="Search name, area, contact, phone" autocomplete="off" aria-label="Search venues"></label>
+        <button class="btn fbtn" type="button" data-act="filters">${I.filter}Filter${nf ? ` <span class="fcount">${nf}</span>` : ""}</button>
+      </div>
+      ${nf || F.by === "area" ? `<div class="fchips">${F.by === "area" ? `<button class="fchip" type="button" data-act="by" data-v="stage">Grouped by area ✕</button>` : ""}${activeFilters().map(([k, l]) => `<button class="fchip" type="button" data-act="unfilter" data-k="${k}">${esc(l)} ✕</button>`).join("")}</div>` : ""}
+      <div id="vlist" class="groups"></div>
+      <p class="legend2"><span class="dots4"><i class="d-done">E</i></span> Email <span class="dots4"><i class="d-done">W</i></span> WhatsApp <span class="dots4"><i class="d-done">I</i></span> Instagram <span class="dots4"><i class="d-done">M</i></span> Met or called · <b>filled</b> done, <b class="late-t">red</b> bounced, outline not yet</p>`;
   }
 
-  function filtered(rm, ignoreTab) {
+  function activeFilters() {
+    const out = [];
+    if (F.owner !== "all") out.push(["owner", F.owner === "none" ? "No owner" : "Owner: " + personName(F.owner)]);
+    if (F.prio !== "all") out.push(["prio", F.prio === "Image" ? "Image (big name)" : F.prio + " priority"]);
+    if (F.reach !== "all") out.push(["reach", REACH_LABEL[F.reach] || F.reach]);
+    return out;
+  }
+  const REACH_LABEL = { none: "Not contacted at all", fail: "Bounced or failed", "no-email": "Not emailed yet", "no-wa": "Not WhatsApped yet", "no-ig": "Not DMed on Instagram yet", "no-met": "Not met or called yet" };
+
+  function filtered(rm) {
     const q = F.q.trim().toLowerCase();
     const qd = digits(q);
-    const tab = TABS.find(t => t.k === F.tab) || TABS[0];
     return S.venues.filter(v => {
-      if (!ignoreTab && !tab.stages.includes(v.stage)) return false;
-      if (!ignoreTab && F.stage !== "all" && v.stage !== F.stage) return false;
-      if (F.city !== "all" && v.city !== F.city) return false;
+      if (!q && v.city !== F.city) return false;            // a search looks in both cities
       if (F.owner === "none" ? v.owner : F.owner !== "all" && v.owner !== F.owner) return false;
       if (F.prio !== "all" && v.priority !== F.prio) return false;
       if (F.reach !== "all") {
@@ -343,36 +373,72 @@
       return hay.includes(q) || (qd.length >= 4 && digits(v.phone).includes(qd));
     });
   }
-  function lastAct(id) { let m = ""; for (const a of S.activities) if (a.venue_id === id && (a.happened_on || "") > m) m = a.happened_on; return m; }
+  function lastActMap() {
+    const m = new Map();
+    for (const a of S.activities) { const c = m.get(a.venue_id); if (!c || (a.happened_on || "") > c.happened_on) m.set(a.venue_id, a); }
+    return m;
+  }
   function renderVenueList() {
     const el = $("#vlist"); if (!el) return;
-    const rm = reachMap();
-    const base = filtered(rm, true);
-    $("#vtabs").innerHTML = TABS.map(t => `<button class="tab" role="tab" type="button" data-act="vtab" data-tab="${t.k}" aria-selected="${F.tab === t.k}">${t.t} <span class="c">${base.filter(v => t.stages.includes(v.stage)).length}</span></button>`).join("");
-    let list = filtered(rm, false);
+    const rm = reachMap(), la = lastActMap();
+    const list = filtered(rm);
+    const searching = !!F.q.trim();
     const lv = v => STAGE[v.stage]?.lv ?? -1;
-    if (F.sort === "stage") list.sort((a, b) => lv(b) - lv(a) || a.name.localeCompare(b.name));
-    else if (F.sort === "next") list.sort((a, b) => (a.next_date || "9999").localeCompare(b.next_date || "9999") || a.name.localeCompare(b.name));
-    else if (F.sort === "recent") { const m = new Map(list.map(v => [v.id, lastAct(v.id)])); list.sort((a, b) => m.get(b.id).localeCompare(m.get(a.id)) || a.name.localeCompare(b.name)); }
-    else list.sort((a, b) => a.name.localeCompare(b.name));
-    const tab = TABS.find(t => t.k === F.tab) || TABS[0];
-    $("#vcount").textContent = `${list.length} ${tab.t.toLowerCase()}${F.q || F.stage !== "all" || F.city !== "all" || F.reach !== "all" || F.owner !== "all" || F.prio !== "all" ? " match" : ""}`;
-    if (!list.length) { el.innerHTML = `<div class="list"><div class="empty">No venues match. Clear the search or a filter, or add it as a new venue.</div></div>`; return; }
-    const rows = list.slice(0, F.limit);
-    el.innerHTML = `<table class="vtable">
-      <thead><tr><th class="c-name">Venue</th><th class="c-stage">Stage</th>${REACH.map(r => `<th class="c-tick">${r.t}</th>`).join("")}<th class="c-sj">Priority</th><th class="c-sj">Fit</th><th class="c-sj">Uses today</th><th class="c-next">Next step</th></tr></thead>
-      <tbody>${rows.map(v => {
-        const w = when(v.next_date);
-        const ticks = REACH.map(r => reachState(v, r, rm));
-        return `<tr data-href="#venue-${v.id}">
-          <td class="c-name"><a href="#venue-${v.id}"><span class="vn">${esc(v.name)}</span> ${cityTag(v.city)}</a>
-            <span class="vs">${esc([v.area, v.venue_type].filter(Boolean).join(" · "))}</span>
-            <span class="mticks">${ticks.map((st, i) => tick(st, REACH[i], true)).join("")}</span></td>
-          <td class="c-stage">${pill(v.stage)}</td>
-          ${ticks.map((st, i) => `<td class="c-tick">${tick(st, REACH[i], false)}</td>`).join("")}
-          <td class="c-sj">${esc(v.priority || "")}</td><td class="c-sj">${esc(v.fit || "")}</td><td class="c-sj">${esc(v.current_system || "")}</td>
-          <td class="c-next">${w.t ? `<span class="when num ${w.c}">${esc(w.t)}</span>` : ""}</td></tr>`;
-      }).join("")}</tbody></table>` + (list.length > F.limit ? `<button class="more" type="button" data-act="more">Show ${Math.min(80, list.length - F.limit)} more</button>` : "");
+    const sorter = F.sort === "stage" ? (a, b) => lv(b) - lv(a) || a.name.localeCompare(b.name)
+      : F.sort === "next" ? (a, b) => (a.next_date || "9999").localeCompare(b.next_date || "9999") || a.name.localeCompare(b.name)
+      : F.sort === "recent" ? (a, b) => (la.get(b.id)?.happened_on || "").localeCompare(la.get(a.id)?.happened_on || "") || a.name.localeCompare(b.name)
+      : (a, b) => a.name.localeCompare(b.name);
+
+    let groups;
+    if (F.by === "area") {
+      const m = new Map();
+      for (const v of list) { const k = (v.area || "Area not set").trim(); if (!m.has(k)) m.set(k, []); m.get(k).push(v); }
+      groups = [...m.entries()].sort((a, b) => (a[0] === "Area not set") - (b[0] === "Area not set") || b[1].length - a[1].length || a[0].localeCompare(b[0]))
+        .map(([k, vs]) => ({ k: "area:" + k, e: "", t: k, vs }));
+    } else {
+      groups = GROUPS.map(g => ({ ...g, vs: list.filter(v => g.stages.includes(v.stage)) }));
+    }
+    if (!list.length) { el.innerHTML = `<div class="list"><div class="empty">${searching ? `Nothing matches “${esc(F.q.trim())}” in Singapore or KL.` : "No venues match these filters."} Clear the search or a filter, or add it as a new venue.</div></div>`; return; }
+    el.innerHTML = groups.filter(g => g.vs.length || (!searching && F.by === "stage")).map(g => {
+      const isOpen = searching || !!F.open[g.k];
+      const n = shown[g.k] || 40;
+      const vs = g.vs.sort(sorter);
+      return `<section class="grp ${isOpen ? "open" : ""} g-${g.k.startsWith("area:") ? "area" : g.k}">
+        <button class="grp-h" type="button" data-act="grp" data-g="${esc(g.k)}" aria-expanded="${isOpen}">
+          ${g.e ? `<span class="ge" aria-hidden="true">${g.e}</span>` : ""}<span class="gt">${esc(g.t)}${g.d && !searching ? `<small>${esc(g.d)}</small>` : ""}</span>
+          <span class="gc num">${vs.length}</span><span class="chev" aria-hidden="true">›</span></button>
+        ${isOpen ? `<div class="grp-b">${vs.length ? vs.slice(0, n).map(v => rowVenue(v, rm, la, F.by === "area" || searching)).join("") : `<div class="empty">None right now.</div>`}
+          ${vs.length > n ? `<button class="list-more" type="button" data-act="grp-more" data-g="${esc(g.k)}">Show ${Math.min(40, vs.length - n)} more of ${vs.length}</button>` : ""}</div>` : ""}
+      </section>`;
+    }).join("");
+  }
+  function rowVenue(v, rm, la, showStage) {
+    const a = la.get(v.id);
+    const last = a ? `${a.channel} · ${fmt(a.happened_on)}` : "No contact yet";
+    const w = v.next_date ? when(v.next_date) : null;
+    const ticks = REACH.map(r => reachState(v, r, rm));
+    return `<a class="vrow" href="#venue-${v.id}">
+      <span class="main"><span class="name">${esc(v.name)}${F.q.trim() ? " " + cityTag(v.city) : ""}</span>
+        <span class="sub">${esc([v.area, last].filter(Boolean).join(" · "))}</span></span>
+      <span class="right">${showStage ? `<span class="mini-stage">${esc(STAGE[v.stage]?.t || v.stage)}</span>` : w ? `<span class="when num ${w.c}">${esc(w.t)}</span>` : ""}
+        <span class="dots4" aria-label="Reached by: ${REACH.map((r, i) => r.t + " " + REACH_TIP[ticks[i].s]).join(", ")}">${ticks.map((st, i) => `<i class="d-${st.s}" title="${esc(REACH[i].t + ": " + REACH_TIP[st.s])}">${REACH[i].short[0]}</i>`).join("")}</span></span></a>`;
+  }
+
+  function filterSheet() {
+    const opt = (k, v, l) => `<option value="${esc(v)}" ${F[k] === v ? "selected" : ""}>${esc(l)}</option>`;
+    openSheet({
+      html: `${head("Filter and sort")}
+        <div class="field"><span>Group venues by</span><div class="seg">${[["stage", "Where they're at"], ["area", "Area (for visits)"]].map(([k, l]) => `<label><input type="radio" name="by" value="${k}" ${F.by === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div></div>
+        <label class="field"><span>Owner</span><select data-f="owner">${opt("owner", "all", "Anyone")}${people().map(p => opt("owner", p.initials, p.name)).join("")}${opt("owner", "none", "No owner")}</select></label>
+        <label class="field"><span>Priority</span><select data-f="prio">${opt("prio", "all", "Any priority")}${PRIORITY.map(p => opt("prio", p, p === "Image" ? "Image (big name)" : p)).join("")}</select></label>
+        <label class="field"><span>How we've reached them</span><select data-f="reach">${opt("reach", "all", "Any")}${Object.entries(REACH_LABEL).map(([k, l]) => opt("reach", k, l)).join("")}</select></label>
+        <label class="field"><span>Sort inside each group</span><select data-f="sort">${opt("sort", "name", "A to Z")}${opt("sort", "recent", "Last contact first")}${opt("sort", "next", "Next step date")}${opt("sort", "stage", "Furthest along first")}</select></label>
+        <div class="actions"><button class="btn primary" type="button" data-act="close">Done</button><button class="btn ghost" type="button" data-act="clear-filters">Clear all</button></div>`,
+      bind(sheet) {
+        sheet.querySelectorAll("[data-f]").forEach(sel => sel.onchange = () => { F[sel.dataset.f] = sel.value; saveF(); render(); });
+        sheet.querySelectorAll("input[name=by]").forEach(r => r.onchange = () => { F.by = r.value; saveF(); render(); });
+      },
+    });
   }
 
   /* ---------------------------------------------------------------- Venue detail */
@@ -382,63 +448,68 @@
     const acts = actsFor(id);
     const w = when(v.next_date);
     const wa = waNumber(v.phone, v.city);
-    const contact = [
-      v.phone && digits(v.phone) ? `<a class="btn" href="tel:+${waNumber(v.phone, v.city) || digits(v.phone)}">${I.phone}Call</a>` : "",
-      wa ? `<a class="btn" href="https://wa.me/${wa}" target="_blank" rel="noopener">${I.chat}WhatsApp</a>` : "",
-      v.email ? `<a class="btn" href="mailto:${esc(v.email)}">${I.mail}Email</a>` : "",
-      v.instagram ? `<a class="btn" href="${esc(igUrl(v.instagram))}" target="_blank" rel="noopener">${I.insta}Instagram</a>` : "",
-      v.website ? `<a class="btn" href="${esc(webUrl(v.website))}" target="_blank" rel="noopener">${I.web}Website</a>` : "",
-    ].join("");
-    const kv = (k, val, copy) => `<div class="kv"><dt>${k}</dt><dd class="${val ? "" : "empty"}">${val ? esc(val) + (copy ? ` <button class="copy" type="button" data-act="copy" data-v="${esc(val)}">Copy</button>` : "") : "–"}</dd></div>`;
+    const g = GROUPS.find(x => x.k === groupOf(v.stage));
+    const icon = (href, ic, label, ext) => `<a class="cbtn" href="${esc(href)}" ${ext ? 'target="_blank" rel="noopener"' : ""}><span class="ci">${ic}</span>${label}</a>`;
+    const contactBtns = [
+      v.phone && digits(v.phone) ? icon(`tel:+${wa || digits(v.phone)}`, I.phone, "Call") : "",
+      wa ? icon(`https://wa.me/${wa}`, I.chat, "WhatsApp", true) : "",
+      v.email ? icon(`mailto:${v.email}`, I.mail, "Email") : "",
+      v.instagram ? icon(igUrl(v.instagram), I.insta, "Instagram", true) : "",
+      v.website ? icon(webUrl(v.website), I.web, "Website", true) : "",
+    ].filter(Boolean).join("");
+    const line = (k, val, copy) => val ? `<div class="kv"><dt>${k}</dt><dd>${esc(val)}${copy ? ` <button class="copy" type="button" data-act="copy" data-v="${esc(val)}">Copy</button>` : ""}</dd></div>` : "";
+    const kv = (k, val) => `<div class="kv"><dt>${k}</dt><dd class="${val ? "" : "empty"}">${val ? esc(val) : "–"}</dd></div>`;
     const isAdmin = S.me.role === "admin";
+    const allH = !!prefs.histAll;
     return `
       <a class="back" href="#venues">${I.back}Venues</a>
+      <div class="vpage">
       <div class="vhead">
-        <div class="tags">${cityTag(v.city)}${v.grp ? `<span class="tag2">${esc(v.grp)}</span>` : ""}</div>
+        <div class="tags">${cityTag(v.city)}${v.grp ? `<span class="tag2">${esc(v.grp)}</span>` : ""}<span class="tag2">${g.e ? g.e + " " : ""}${g.t}</span></div>
         <h1>${esc(v.name)}</h1>
         ${[v.venue_type, v.area].filter(Boolean).length ? `<div class="facts">${esc([v.venue_type, v.area].filter(Boolean).join(" · "))}</div>` : ""}
-        <div class="tags">
-          <button class="pill s-${v.stage} stage-btn" type="button" data-act="stage" data-id="${v.id}" aria-label="Stage: ${esc(STAGE[v.stage]?.t)}. Change">${level(v.stage)}${esc(STAGE[v.stage]?.t || v.stage)}</button>
-          ${v.priority ? `<span class="tag2">${v.priority === "Image" ? "Image (big name)" : esc(v.priority) + " priority"}</span>` : ""}
-          ${v.fit ? `<span class="tag2">${esc(v.fit)} fit</span>` : ""}
-          ${v.current_system ? `<span class="tag2">Uses: ${esc(v.current_system)}</span>` : ""}
-        </div>
+        <button class="pill s-${v.stage} stage-btn" type="button" data-act="stage" data-id="${v.id}" aria-label="Stage: ${esc(STAGE[v.stage]?.t)}. Change">${level(v.stage)}${esc(STAGE[v.stage]?.t || v.stage)} <span class="chg">Change</span></button>
       </div>
-      <div class="actions"><button class="btn primary" type="button" data-act="log" data-id="${v.id}">${I.log}Log activity</button>${contact}</div>
-      <div class="vgrid">
-        <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
-          <section>
-            <div class="sec-head"><h2>Next step</h2></div>
-            <div class="nextcard ${w.c === "late" ? "late" : ""}">
-              ${v.next_step || v.next_date ? `<div class="what">${esc(v.next_step || "Follow up")}</div>
-                <div class="when num ${w.c}">${v.next_date ? `${esc(w.t)}${w.t !== fmt(v.next_date) ? " · " + fmt(v.next_date) : ""}` : "No date set"} · ${v.owner ? esc(personName(v.owner)) : "No owner"}</div>`
-                : `<div class="none">No next step yet. Every venue that's in play should have one, with a date.</div>`}
-              <div class="actions"><button class="btn" type="button" data-act="next" data-id="${v.id}">${I.edit}${v.next_step ? "Change" : "Set next step"}</button>
-                ${v.next_step ? `<button class="btn ghost" type="button" data-act="log" data-id="${v.id}">Done? Log it</button>` : ""}</div>
-            </div>
-          </section>
-          <section>
-            <div class="sec-head"><h2>History</h2><span class="count num">${acts.length}</span></div>
-            <div class="timeline">${acts.length ? acts.map(a => `<div class="tl"><span class="ic ${a.channel.toLowerCase()}">${CH_ICON[a.channel] || I.note}</span>
-                <div><div class="txt">${esc(a.summary)}</div><div class="meta">${av(a.author, true)}<span>${esc(personName(a.author))}</span><span>${esc(a.channel)}</span><span>${fmt(a.happened_on)}</span>
-                ${S.canDeleteActivity(a) && a.created_by ? `<button class="del" type="button" data-act="del-act" data-id="${a.id}">Remove</button>` : ""}</div></div></div>`).join("")
-              : `<div class="empty">Nothing logged yet. Tap Log activity after every call, message or visit.</div>`}</div>
-          </section>
-        </div>
-        <section>
-          <div class="sec-head"><h2>Details</h2><button class="btn ghost" type="button" data-act="edit" data-id="${v.id}">${I.edit}Edit</button></div>
-          <dl class="details">
-            ${kv("Contact", [v.contact_name, v.contact_role].filter(Boolean).join(", "))}
-            ${kv("Phone", v.phone, true)}${kv("Email", v.email, true)}${kv("Instagram", v.instagram)}${kv("Website", v.website)}
-            ${kv("Address", v.address)}${kv("Group", v.grp)}
-            ${kv("Owner", v.owner ? personName(v.owner) : "")}${kv("Introduced by", v.introducer ? personName(v.introducer) : "")}
-            ${kv("Notes", v.notes)}
-          </dl>
-          <p class="updated">${v.updated_by && personById(v.updated_by)
-            ? `Last updated by <b>${esc(personById(v.updated_by).name)}</b> · ${esc(stamp(v.updated_at))}`
-            : v.updated_by ? `Last updated ${esc(stamp(v.updated_at))}` : `Imported from our venue sheets and email history${v.updated_at ? " · " + esc(stamp(v.updated_at)) : ""}`}</p>
-          ${isAdmin ? `<div id="del-zone"><button class="btn danger" type="button" data-act="del-venue-ask" data-id="${v.id}" style="margin-top:8px">Delete venue</button></div>` : ""}
-        </section>
+
+      <section class="card nextcard ${w.c === "late" ? "late" : ""}">
+        <div class="label">Next step</div>
+        ${v.next_step || v.next_date ? `<div class="what">${esc(v.next_step || "Follow up")}</div>
+          <div class="when num ${w.c}">${v.next_date ? `${esc(w.t)}${w.t !== fmt(v.next_date) ? " · " + fmt(v.next_date) : ""}` : "No date set"} · ${v.owner ? esc(personName(v.owner)) : "No owner"}</div>`
+          : `<div class="none">No next step yet. Set one with a date so it shows on Today.</div>`}
+        <div class="actions"><button class="btn primary" type="button" data-act="log" data-id="${v.id}">${I.log}Log activity</button>
+          <button class="btn" type="button" data-act="next" data-id="${v.id}">${I.edit}${v.next_step ? "Change next step" : "Set next step"}</button></div>
+      </section>
+
+      <section class="card">
+        <div class="label">Contact</div>
+        ${v.contact_name ? `<div class="cwho"><b>${esc(v.contact_name)}</b>${v.contact_role ? ` · ${esc(v.contact_role)}` : ""}</div>` : `<div class="cwho muted">No contact person yet</div>`}
+        ${contactBtns ? `<div class="cbtns">${contactBtns}</div>` : `<p class="muted" style="margin:0;font-size:14px">No phone, email or Instagram yet. Tap Edit details to add them.</p>`}
+        ${v.phone || v.email ? `<dl class="details slim">${line("Phone", v.phone, true)}${line("Email", v.email, true)}${line("Instagram", v.instagram)}</dl>` : ""}
+      </section>
+
+      <section>
+        <div class="sec-head"><h2>History</h2><span class="count num">${acts.length}</span></div>
+        <div class="timeline">${acts.length ? (allH ? acts : acts.slice(0, 3)).map(a => `<div class="tl"><span class="ic ${a.channel.toLowerCase()}">${CH_ICON[a.channel] || I.note}</span>
+            <div><div class="txt">${esc(a.summary)}</div><div class="meta">${av(a.author, true)}<span>${esc(personName(a.author))}</span><span>${esc(a.channel)}</span><span>${fmt(a.happened_on)}</span>
+            ${S.canDeleteActivity(a) && a.created_by ? `<button class="del" type="button" data-act="del-act" data-id="${a.id}">Remove</button>` : ""}</div></div></div>`).join("")
+          : `<div class="empty">Nothing logged yet. Tap Log activity after every call, message or visit.</div>`}
+          ${acts.length > 3 ? `<button class="list-more" type="button" data-act="hist-all">${allH ? "Show less" : `See all ${acts.length}`}</button>` : ""}</div>
+      </section>
+
+      <details class="more-d">
+        <summary><span>More details</span><span class="muted">${esc([v.address ? "address" : "", v.notes ? "notes" : "", "owner"].filter(Boolean).join(", "))}</span></summary>
+        <dl class="details">
+          ${kv("Address", v.address)}${kv("Website", v.website)}${kv("Group", v.grp)}
+          ${kv("Owner", v.owner ? personName(v.owner) : "")}${kv("Introduced by", v.introducer ? personName(v.introducer) : "")}
+          ${kv("Priority", v.priority === "Image" ? "Image (big name)" : v.priority)}${kv("Fit", v.fit)}${kv("Uses today", v.current_system)}
+          ${kv("Notes", v.notes)}
+        </dl>
+        <p class="updated">${v.updated_by && personById(v.updated_by)
+          ? `Last updated by <b>${esc(personById(v.updated_by).name)}</b> · ${esc(stamp(v.updated_at))}`
+          : v.updated_by ? `Last updated ${esc(stamp(v.updated_at))}` : `Imported from our venue sheets and email history${v.updated_at ? " · " + esc(stamp(v.updated_at)) : ""}`}</p>
+        ${isAdmin ? `<div id="del-zone"><button class="btn danger" type="button" data-act="del-venue-ask" data-id="${v.id}">Delete venue</button></div>` : ""}
+      </details>
+      <button class="btn block" type="button" data-act="edit" data-id="${v.id}">${I.edit}Edit details</button>
       </div>`;
   }
 
@@ -675,6 +746,7 @@
         <p class="muted" style="margin:0">${S.me.role === "admin" ? "Admin: can add, edit and delete venues." : "Can add and edit venues and log activity. Only Kanesh can delete venues."}</p>
         <div class="field"><span>Appearance</span><div class="seg">${[["auto", "Match phone"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<label><input type="radio" name="theme" value="${k}" ${t === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div></div>
         <div class="field"><span>Install on your phone</span>${installHelp()}</div>
+        <div class="field"><span>Help</span><button class="btn" type="button" data-act="guide">${I.guide}How the CRM works</button></div>
         <div class="field"><span>Your PIN</span><button class="btn" type="button" data-act="change-pin">Change my PIN</button></div>
         <div class="field"><span>Backup</span><button class="btn" type="button" data-act="backup">${I.download}Download everything (Excel)</button>
           <span class="hint">All venues and their full history in one spreadsheet.</span></div>
@@ -812,7 +884,7 @@
       case "install": if (installEvt) { const ev = installEvt; ev.prompt(); ev.userChoice.finally(() => { installEvt = null; closeSheet(); render(); }); } return;
       case "install-hide": prefs.installHidden = true; savePrefs(); render(); return;
       case "signout": S.signOut(); return;
-      case "resync": S.load().catch(() => {}); paintSync(); return;
+      case "resync": toast(S.online ? `Everyone's changes show up live. ${esc((S.sync && S.sync.at) ? "Last synced " + ago(S.sync.at) : "")}.` : "You're offline. Changes save when you're back online."); S.load().catch(() => {}); paintSync(); return;
       case "change-pin": changePinSheet(); return;
       case "backup": guard(el, async () => { el.disabled = true; try { await downloadBackup(); } finally { el.disabled = false; } }); return;
       case "team": teamSheet(); return;
@@ -833,9 +905,17 @@
       case "next": nextSheet(v); return;
       case "edit": editSheet(v); return;
       case "today-mine": todayMine = el.dataset.v === "1"; prefs.todayMine = todayMine; savePrefs(); render(); return;
-      case "goto-stage": e.preventDefault(); Object.assign(F, { tab: tabOf(el.dataset.stage), stage: el.dataset.stage, q: "", city: "all", owner: "all", prio: "all", reach: "all", limit: 80 }); prefs.filters2 = { ...F }; savePrefs(); location.hash = "venues"; if (route().name === "venues") render(); return;
-      case "vtab": F.tab = el.dataset.tab; F.stage = "all"; F.limit = 80; prefs.filters2 = { ...F }; savePrefs(); render(); return;
-      case "more": F.limit += 80; renderVenueList(); return;
+      case "goto-group": Object.assign(F, { q: "", by: "stage", open: { [el.dataset.g]: true } }); saveF(); location.hash = "venues"; return;
+      case "todo-all": prefs.todoAll = !prefs.todoAll; savePrefs(); render(); return;
+      case "hist-all": prefs.histAll = !prefs.histAll; savePrefs(); render(); return;
+      case "city": F.city = el.dataset.v; saveF(); render(); return;
+      case "filters": filterSheet(); return;
+      case "unfilter": F[el.dataset.k] = "all"; saveF(); render(); return;
+      case "clear-filters": Object.assign(F, { owner: "all", prio: "all", reach: "all", sort: "name", by: "stage" }); saveF(); closeSheet(); render(); return;
+      case "by": F.by = el.dataset.v; saveF(); render(); return;
+      case "guide": closeSheet(); location.hash = "guide"; return;
+      case "grp": { const k = el.dataset.g; F.open = { ...F.open, [k]: !F.open[k] }; saveF(); renderVenueList(); return; }
+      case "grp-more": shown[el.dataset.g] = (shown[el.dataset.g] || 40) + 40; renderVenueList(); return;
       case "copy": {
         const val = el.dataset.v;
         const done = () => { el.textContent = "Copied"; setTimeout(() => el.textContent = "Copy", 1500); };
