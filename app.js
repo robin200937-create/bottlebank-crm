@@ -97,6 +97,7 @@
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>',
     back: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
     filter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>',
+    map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h3.5l1.8 4.5-2.3 1.4a11 11 0 0 0 6.1 6.1l1.4-2.3L20 15.5V19a1.5 1.5 0 0 1-1.6 1.5C10.6 20 4 13.4 3.5 5.6A1.5 1.5 0 0 1 5 4Z"/></svg>',
@@ -481,6 +482,8 @@
   }
 
   /* ---------------------------------------------------------------- Venue detail */
+  // Google Maps: the address if we have one, otherwise the venue name and city
+  const mapsUrl = v => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(v.address || `${v.name}, ${v.area ? v.area + ", " : ""}${v.city === "KL" ? "Kuala Lumpur" : "Singapore"}`);
   function viewVenue(id) {
     const v = byId(id);
     if (!v) return `<a class="back" href="#venues">${I.back}Venues</a><div class="list"><div class="empty">This venue isn't in the CRM. It may have been deleted.</div></div>`;
@@ -495,6 +498,7 @@
       v.email ? icon(`mailto:${v.email}`, I.mail, "Email") : "",
       v.instagram ? icon(igUrl(v.instagram), I.insta, "Instagram", true) : "",
       v.website ? icon(webUrl(v.website), I.web, "Website", true) : "",
+      icon(mapsUrl(v), I.map, "Maps", true),
     ].filter(Boolean).join("");
     const line = (k, val, copy) => val ? `<div class="kv"><dt>${k}</dt><dd>${esc(val)}${copy ? ` <button class="copy" type="button" data-act="copy" data-v="${esc(val)}">Copy</button>` : ""}</dd></div>` : "";
     const kv = (k, val) => `<div class="kv"><dt>${k}</dt><dd class="${val ? "" : "empty"}">${val ? esc(val) : "–"}</dd></div>`;
@@ -538,7 +542,7 @@
       <details class="more-d">
         <summary><span>More details</span><span class="muted">${esc([v.address ? "address" : "", v.notes ? "notes" : "", "owner"].filter(Boolean).join(", "))}</span></summary>
         <dl class="details">
-          ${kv("Address", v.address)}${kv("Website", v.website)}${kv("Group", v.grp)}
+          <div class="kv"><dt>Address</dt><dd class="${v.address ? "" : "empty"}">${v.address ? `${esc(v.address)} <a class="copy" href="${esc(mapsUrl(v))}" target="_blank" rel="noopener">Open in Maps</a>` : "–"}</dd></div>${kv("Website", v.website)}${kv("Group", v.grp)}
           ${kv("Owner", v.owner ? personName(v.owner) : "")}${kv("Introduced by", v.introducer ? personName(v.introducer) : "")}
           ${kv("Priority", v.priority === "Image" ? "Image (big name)" : v.priority)}${kv("Fit", v.fit)}${kv("Uses today", v.current_system)}
           ${kv("Notes", v.notes)}
@@ -659,28 +663,69 @@
     finally { btn.disabled = false; }
   }
 
+  // One-tap logging: each preset fills in the channel, the history line, the stage and a next step.
+  const addDays = n => ymd(new Date(Date.now() + n * 86400000));
+  const QUICK = [
+    { k: "wa",     t: "Sent WhatsApp",    ch: "WhatsApp",  say: "Sent a WhatsApp message.",       to: "contacted", next: "Follow up if no reply", days: 5 },
+    { k: "email",  t: "Sent email",       ch: "Email",     say: "Sent an email.",                 to: "contacted", next: "Follow up if no reply", days: 5 },
+    { k: "ig",     t: "Sent Instagram DM", ch: "Instagram", say: "Sent an Instagram DM.",         to: "contacted", next: "Follow up if no reply", days: 5 },
+    { k: "call",   t: "Called",           ch: "Call",      say: "Called them.",                   to: "contacted", next: "Follow up on the call", days: 3 },
+    { k: "noreply",t: "No reply yet",     ch: "Note",      say: "No reply yet.",                  to: null,        next: "Try another channel", days: 3 },
+    { k: "reply",  t: "They replied",     ch: "WhatsApp",  say: "They replied.",                  to: "talking",   next: "Reply and book a meeting", days: 1 },
+    { k: "meet",   t: "Meeting booked",   ch: "Meeting",   say: "Meeting booked.",                to: "meeting",   next: "Meeting", days: 3 },
+    { k: "visit",  t: "Visited",          ch: "Visit",     say: "Visited the venue.",             to: "contacted", next: "Follow up after the visit", days: 2 },
+    { k: "no",     t: "Not interested",   ch: "Note",      say: "Not interested for now.",        to: "lost",      next: "", days: null },
+  ];
+  // Stages only move forward from a preset (a "Sent WhatsApp" never drags a client back to Contacted).
+  const forward = (cur, to) => {
+    if (!to) return cur;
+    if (to === "lost") return "lost";
+    const lc = STAGE[cur]?.lv ?? -1, lt = STAGE[to]?.lv ?? -1;
+    return lc < 0 || lt > lc ? to : cur;
+  };
+  const dateChips = name => `<div class="dchips" data-for="${name}">${[["Tomorrow", 1], ["In 3 days", 3], ["Next week", 7], ["In 2 weeks", 14]].map(([l, n]) => `<button type="button" class="dchip" data-days="${n}">${l}</button>`).join("")}<button type="button" class="dchip" data-days="">No date</button></div>`;
+  function wireDateChips(root) {
+    root.querySelectorAll(".dchips").forEach(box => {
+      const input = root.querySelector(`[name=${box.dataset.for}]`);
+      const mark = () => box.querySelectorAll(".dchip").forEach(b => b.setAttribute("aria-pressed", String((b.dataset.days ? addDays(Number(b.dataset.days)) : "") === input.value)));
+      box.querySelectorAll(".dchip").forEach(b => b.onclick = () => { input.value = b.dataset.days ? addDays(Number(b.dataset.days)) : ""; mark(); });
+      input.addEventListener("change", mark); mark();
+    });
+  }
+
   function logSheet(v) {
     const suggested = v.stage === "lead" ? "contacted" : v.stage;
     openSheet({
       html: `${head("Log activity")}
         <form id="log-form" novalidate>
-          <div class="field"><span>${esc(v.name)}: how did you reach them?</span>
+          <div class="field"><span>${esc(v.name)}: what happened? Tap one</span>
+            <div class="quick">${QUICK.map(q => `<button type="button" class="qbtn ${q.k === "no" ? "q-no" : ""}" data-q="${q.k}" aria-pressed="false">${q.t}</button>`).join("")}</div></div>
+          <div class="field"><span>Channel</span>
             <div class="seg">${CHANNELS.map((c, i) => `<label><input type="radio" name="channel" value="${c}" ${i === 0 ? "checked" : ""}><span>${CH_ICON[c]}${c}</span></label>`).join("")}</div></div>
-          <label class="field"><span>What happened?</span><textarea name="summary" id="f-summary" placeholder="e.g. Met the manager. They use paper cards and lose bottles every month. Wants a demo next week." required></textarea></label>
+          <label class="field"><span>Notes</span><textarea name="summary" id="f-summary" placeholder="Tap an option above, or write what happened. Add who you spoke to or what they said." required></textarea></label>
           <div class="two">
             <label class="field"><span>When</span><input type="date" name="happened_on" id="f-happened_on" value="${today()}" max="${today()}"></label>
             <label class="field"><span>Stage now</span>${sel("stage", ALL.map(s => [s.k, s.t]), suggested)}</label>
           </div>
           <label class="field"><span>Next step</span><input name="next_step" id="f-next_step" value="${esc(v.next_step || "")}" placeholder="e.g. Book a demo with the owner"></label>
-          <div class="two">
-            <label class="field"><span>By when</span><input type="date" name="next_date" id="f-next_date" value="${esc(v.next_date || "")}"></label>
-            <label class="field"><span>Who's on it</span>${sel("owner", ownerOpts(), v.owner || S.me.initials)}</label>
-          </div>
+          <div class="field"><span>By when</span>${dateChips("next_date")}<input type="date" name="next_date" id="f-next_date" value="${esc(v.next_date || "")}" aria-label="Or pick a date"></div>
+          <label class="field"><span>Who's on it</span>${sel("owner", ownerOpts(), v.owner || S.me.initials)}</label>
           <p class="error" role="alert"></p>
           <button class="btn primary block" type="submit">Save</button>
         </form>`,
       bind(sheet) {
         const f = $("#log-form", sheet);
+        wireDateChips(f);
+        f.querySelectorAll("[data-q]").forEach(b => b.onclick = () => {
+          const q = QUICK.find(x => x.k === b.dataset.q);
+          f.querySelectorAll("[data-q]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+          const r = f.querySelector(`input[name=channel][value="${q.ch}"]`); if (r) r.checked = true;
+          f.summary.value = q.say + " ";
+          f.stage.value = forward(v.stage, q.to);
+          f.next_step.value = q.next;
+          f.next_date.value = q.days ? addDays(q.days) : "";
+          f.next_date.dispatchEvent(new Event("change"));
+        });
         f.onsubmit = e => {
           e.preventDefault();
           const d = Object.fromEntries(new FormData(f));
@@ -719,15 +764,14 @@
       html: `${head("Next step")}
         <form id="next-form" novalidate>
           <label class="field"><span>What happens next at ${esc(v.name)}?</span><input name="next_step" id="f-next_step" value="${esc(v.next_step || "")}" placeholder="e.g. Call Adrian about the quotation" autofocus></label>
-          <div class="two">
-            <label class="field"><span>By when</span><input type="date" name="next_date" id="f-next_date" value="${esc(v.next_date || "")}"></label>
-            <label class="field"><span>Who's on it</span>${sel("owner", ownerOpts(), v.owner || S.me.initials)}</label>
-          </div>
+          <div class="field"><span>By when</span>${dateChips("next_date")}<input type="date" name="next_date" id="f-next_date" value="${esc(v.next_date || "")}" aria-label="Or pick a date"></div>
+          <label class="field"><span>Who's on it</span>${sel("owner", ownerOpts(), v.owner || S.me.initials)}</label>
           <p class="error" role="alert"></p>
           <div class="actions"><button class="btn primary" type="submit">Save</button>${v.next_step || v.next_date ? `<button class="btn" type="button" id="clear-next">Clear next step</button>` : ""}</div>
         </form>`,
       bind(sheet) {
         const f = $("#next-form", sheet);
+        wireDateChips(f);
         f.onsubmit = e => { e.preventDefault(); const d = Object.fromEntries(new FormData(f));
           guard($("button[type=submit]", f), async () => { await S.updateVenue(v.id, { next_step: d.next_step.trim(), next_date: d.next_date || null, owner: d.owner }); closeSheet(); toast("Next step saved"); }); };
         const c = $("#clear-next", sheet);

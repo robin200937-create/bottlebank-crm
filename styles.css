@@ -486,9 +486,9 @@ main { padding-bottom: calc(var(--tabbar-h) + 28px + env(safe-area-inset-bottom,
 .nextcard .what { font-size: 17px; font-weight: 800; }
 .nextcard .actions { margin-top: 4px; }
 .cwho { font-size: 15px; }
-.cbtns { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.cbtns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; }
 .cbtn { display: flex; flex-direction: column; align-items: center; gap: 6px; text-decoration: none; color: var(--text-2); font-size: 11.5px; font-weight: 600; }
-.cbtn .ci { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.cbtn .ci { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
 .cbtn .ci svg { width: 21px; height: 21px; }
 .details.slim { border: 0; padding: 0; background: none; }
 .details.slim .kv { padding-inline: 0; }
@@ -530,3 +530,15 @@ body { overscroll-behavior-y: contain; }   /* our own pull-to-refresh replaces t
 .form-more[open] summary::before { transform: rotate(90deg); }
 .form-more summary .muted { font-weight: 500; font-size: 13px; }
 .form-more-b { display: flex; flex-direction: column; gap: 14px; padding: 0 14px 14px; }
+
+/* One-tap logging + quick dates */
+.quick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.qbtn { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 12px; padding: 12px 8px; font: 700 13.5px/1.2 var(--f-ui); cursor: pointer; min-height: 48px; }
+.qbtn[aria-pressed="true"] { background: var(--mint); border-color: var(--mint); color: #0C1B1C; }
+.qbtn.q-no { color: var(--danger); }
+.qbtn.q-no[aria-pressed="true"] { background: var(--danger); border-color: var(--danger); color: #fff; }
+.dchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.dchip { border: 1px solid var(--line); background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 8px 12px; font: 600 13px/1 var(--f-ui); cursor: pointer; }
+.dchip[aria-pressed="true"] { background: var(--mint); border-color: var(--mint); color: #0C1B1C; }
+@media (max-width: 380px) { .quick { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cbtn { font-size: 11px; }
