@@ -550,3 +550,28 @@ input[type=date] { -webkit-appearance: none; appearance: none; display: block; w
 input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
 .dpick { position: relative; overflow: hidden; display: inline-flex; align-items: center; }
 .dpick input[type=date] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; padding: 0; border: 0; font-size: 16px; }
+
+/* Channel icons on venue rows (option B) */
+.ricons { display: inline-flex; gap: 4px; }
+.ri { width: 22px; height: 22px; border-radius: 6px; display: inline-grid; place-items: center; font-style: normal; }
+.ri svg { width: 13px; height: 13px; }
+.ri.r-done { background: var(--mint); color: #0C1B1C; }
+.ri.r-fail { background: var(--danger); color: #fff; }
+.ri.r-open { border: 1px solid var(--line); color: var(--text-3); }
+.ri.r-none { color: var(--text-3); opacity: .3; }
+.legend2 .ricons .ri { width: 18px; height: 18px; } .legend2 .ri svg { width: 11px; height: 11px; }
+.reached { display: flex; flex-direction: column; gap: 6px; }
+.rlist { display: flex; flex-wrap: wrap; gap: 6px; }
+.rchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--text-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 3px; }
+.rchip.r-done { color: var(--text); }
+.rchip.r-fail { color: var(--danger); border-color: var(--danger); }
+.rchip .ri { width: 20px; height: 20px; border-radius: 50%; }
+button.cbtn { background: none; border: 0; padding: 0; cursor: pointer; font: 600 11px/1.2 var(--f-ui); color: var(--text-2); }
+/* WhatsApp message picker */
+.waopts { display: flex; flex-direction: column; gap: 8px; }
+.waopt { display: flex; flex-direction: column; gap: 3px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; color: var(--text); background: var(--bg); }
+.waopt small { color: var(--text-2); font-size: 13px; }
+.waopt.best { border-color: var(--mint); box-shadow: 0 0 0 1px var(--mint) inset; }
+.waopt .pick { font: 700 10.5px/1 var(--f-mono); background: var(--mint); color: #0C1B1C; border-radius: 999px; padding: 3px 7px; margin-left: 6px; vertical-align: middle; }
+.waprev summary { cursor: pointer; color: var(--accent); font-weight: 700; font-size: 14px; }
+.waprev p { font-size: 13.5px; color: var(--text-2); background: var(--bg); border-radius: 10px; padding: 12px; margin: 8px 0 0; }

@@ -363,6 +363,9 @@
   }
   const MARK = { done: "✓", fail: "!", open: "○", none: "–" };
   const REACH_TIP = { done: "Done", fail: "Bounced or failed", open: "Not yet", none: "No contact details" };
+  const REACH_ICON = { email: I.mail, wa: I.chat, ig: I.insta, met: I.meeting };
+  // Small channel icons: mint = done, red = bounced, grey = not yet, faint = no contact details
+  const reachIcons = (v, rm) => `<span class="ricons">${REACH.map(r => { const st = reachState(v, r, rm); const tip = `${r.t}: ${REACH_TIP[st.s]}${st.d ? " · " + fmt(st.d) : ""}`; return `<i class="ri r-${st.s}" title="${esc(tip)}" aria-label="${esc(tip)}">${REACH_ICON[r.k]}</i>`; }).join("")}</span>`;
   function tick(st, r, withLabel) {
     const tip = `${r.t}: ${REACH_TIP[st.s]}${st.d ? " · " + fmt(st.d) : ""}`;
     return `<span class="tick t-${st.s}" title="${esc(tip)}" aria-label="${esc(tip)}">${withLabel ? `<span class="tl-l">${r.short}</span>` : ""}<span class="tm">${MARK[st.s]}</span>${!withLabel && st.d ? `<span class="td">${fmt(st.d)}</span>` : ""}</span>`;
@@ -383,7 +386,7 @@
       </div>
       ${nf || F.by === "area" ? `<div class="fchips">${F.by === "area" ? `<button class="fchip" type="button" data-act="by" data-v="stage">Grouped by area ✕</button>` : ""}${activeFilters().map(([k, l]) => `<button class="fchip" type="button" data-act="unfilter" data-k="${k}">${esc(l)} ✕</button>`).join("")}</div>` : ""}
       <div id="vlist" class="groups"></div>
-      <p class="legend2"><span class="dots4"><i class="d-done">E</i></span> Email <span class="dots4"><i class="d-done">W</i></span> WhatsApp <span class="dots4"><i class="d-done">I</i></span> Instagram <span class="dots4"><i class="d-done">M</i></span> Met or called · <b>filled</b> done, <b class="late-t">red</b> bounced, outline not yet</p>`;
+      <p class="legend2"><span class="ricons"><i class="ri r-done">${I.chat}</i></span> done <span class="ricons"><i class="ri r-fail">${I.mail}</i></span> bounced <span class="ricons"><i class="ri r-open">${I.insta}</i></span> not yet · Email, WhatsApp, Instagram, Met</p>`;
   }
 
   function activeFilters() {
@@ -461,7 +464,7 @@
       <span class="main"><span class="name">${esc(v.name)}${F.q.trim() ? " " + cityTag(v.city) : ""}</span>
         <span class="sub">${esc([v.area, last].filter(Boolean).join(" · "))}</span></span>
       <span class="right">${showStage ? `<span class="mini-stage">${esc(STAGE[v.stage]?.t || v.stage)}</span>` : w ? `<span class="when num ${w.c}">${esc(w.t)}</span>` : ""}
-        <span class="dots4" aria-label="Reached by: ${REACH.map((r, i) => r.t + " " + REACH_TIP[ticks[i].s]).join(", ")}">${ticks.map((st, i) => `<i class="d-${st.s}" title="${esc(REACH[i].t + ": " + REACH_TIP[st.s])}">${REACH[i].short[0]}</i>`).join("")}</span></span></a>`;
+        ${reachIcons(v, rm)}</span></a>`;
   }
 
   function filterSheet() {
@@ -482,6 +485,56 @@
   }
 
   /* ---------------------------------------------------------------- Venue detail */
+  // Round 2 WhatsApp messages. Signed with whoever is using the app.
+  const CLIENTS_LINE = { SG: "Already live in 13 locations across Singapore and KL, including HighHouse and Nova.",
+    KL: "Already live in 13 locations across Singapore and KL, including HighHouse and Nova in Singapore, and Haiku KL, The Goodfellas KL, Madras KL and LOBO." };
+  function waText(v, kind) {
+    const who = (S.me && S.me.name) || "Kanesh";
+    const open = kind === "follow" ? `Hi ${v.name} team, ${who} from BottleBank again, following up on my earlier message.` : `Hi ${v.name} team, this is ${who} from BottleBank.`;
+    return `${open}\n\nEvery bottle a customer parks and never returns for is revenue your venue already earned but never fully captured. BottleBank sends automated WhatsApp reminders before bottles expire, so VIPs come back, with zero additional staff effort. We've also just added a new Inventory module in the same app.\n\n${CLIENTS_LINE[v.city === "KL" ? "KL" : "SG"]} You can see everything at bottlebank.io, including a simulator where you can park a bottle yourself.\n\nHappy to show you how it works in a quick meeting.`;
+  }
+  function waSheet(v) {
+    const num = waNumber(v.phone, v.city);
+    const sent = actsFor(v.id).some(a => a.channel === "WhatsApp");
+    const opt = (k, t, d) => `<a class="waopt ${(sent ? "follow" : "intro") === k ? "best" : ""}" href="https://wa.me/${num}${k === "blank" ? "" : "?text=" + encodeURIComponent(waText(v, k))}" target="_blank" rel="noopener" data-wa="${k}">
+      <b>${t}${(sent ? "follow" : "intro") === k ? ' <span class="pick">Suggested</span>' : ""}</b><small>${d}</small></a>`;
+    openSheet({
+      html: `${head("WhatsApp " + esc(v.name))}
+        <p class="muted" style="margin:0;font-size:14px">${sent ? "We've WhatsApped them before." : "We haven't WhatsApped them yet."} Pick a message. It opens in WhatsApp ready to send.</p>
+        <div class="waopts">${opt("intro", "Intro message", "First contact. Who we are, the problem, 13 venues live, bottlebank.io.")}${opt("follow", "Follow-up message", "Same message, opening with “following up on my earlier message”.")}${opt("blank", "Just open the chat", "No message typed.")}</div>
+        <details class="waprev"><summary>See the intro message</summary><p>${esc(waText(v, "intro")).replace(/\n/g, "<br>")}</p></details>`,
+      bind(sheet) {
+        sheet.querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => {
+          if (a.dataset.wa !== "blank") { try { sessionStorage.setItem("bb-wa-pending", JSON.stringify({ id: v.id, kind: a.dataset.wa, at: Date.now() })); } catch (e) {} }
+          closeSheet();
+        }));
+      },
+    });
+  }
+  // Back from WhatsApp: offer to log what was sent
+  function waCheckBack() {
+    let p = null; try { p = JSON.parse(sessionStorage.getItem("bb-wa-pending") || "null"); } catch (e) {}
+    if (!p || Date.now() - p.at > 6 * 3600000) return;
+    const v = byId(p.id); if (!v || !S.me) return;
+    try { sessionStorage.removeItem("bb-wa-pending"); } catch (e) {}
+    const what = p.kind === "follow" ? "follow-up" : "intro";
+    openSheet({
+      html: `${head("Did you send it?")}
+        <p style="margin:0">Log the WhatsApp ${what} to <b>${esc(v.name)}</b>? It goes in the history and sets a follow-up in 5 days.</p>
+        <div class="actions"><button class="btn primary" type="button" id="wa-yes">Yes, log it</button><button class="btn" type="button" data-act="close">No, I didn't send it</button></div>`,
+      bind(sheet) {
+        const b = $("#wa-yes", sheet);
+        b.onclick = () => guard(b, async () => {
+          await S.addActivity({ venue_id: v.id, happened_on: today(), channel: "WhatsApp", summary: `Sent the WhatsApp ${what} message.` });
+          await S.updateVenue(v.id, { stage: forward(v.stage, "contacted"), next_step: "Follow up if no reply", next_date: addDays(5), owner: v.owner || S.me.initials });
+          closeSheet(); toast(`Logged for <b>${esc(v.name)}</b>. Follow-up set for ${fmt(addDays(5))}.`);
+        });
+      },
+    });
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) setTimeout(waCheckBack, 400); });
+  window.addEventListener("focus", () => setTimeout(waCheckBack, 400));
+
   // Google Maps: the address if we have one, otherwise the venue name and city
   const mapsUrl = v => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(v.address || `${v.name}, ${v.area ? v.area + ", " : ""}${v.city === "KL" ? "Kuala Lumpur" : "Singapore"}`);
   function viewVenue(id) {
@@ -494,7 +547,7 @@
     const icon = (href, ic, label, ext) => `<a class="cbtn" href="${esc(href)}" ${ext ? 'target="_blank" rel="noopener"' : ""}><span class="ci">${ic}</span>${label}</a>`;
     const contactBtns = [
       v.phone && digits(v.phone) ? icon(`tel:+${wa || digits(v.phone)}`, I.phone, "Call") : "",
-      wa ? icon(`https://wa.me/${wa}`, I.chat, "WhatsApp", true) : "",
+      wa ? `<button class="cbtn" type="button" data-act="wa" data-id="${v.id}"><span class="ci">${I.chat}</span>WhatsApp</button>` : "",
       v.email ? icon(`mailto:${v.email}`, I.mail, "Email") : "",
       v.instagram ? icon(igUrl(v.instagram), I.insta, "Instagram", true) : "",
       v.website ? icon(webUrl(v.website), I.web, "Website", true) : "",
@@ -526,6 +579,7 @@
       <section class="card">
         <div class="label">Contact</div>
         ${v.contact_name ? `<div class="cwho"><b>${esc(v.contact_name)}</b>${v.contact_role ? ` · ${esc(v.contact_role)}` : ""}</div>` : `<div class="cwho muted">No contact person yet</div>`}
+        <div class="reached"><span class="label">Reached by</span><span class="rlist">${(() => { const rm = reachMap(); return REACH.map(r => { const st = reachState(v, r, rm); return `<span class="rchip r-${st.s}"><i class="ri r-${st.s}">${REACH_ICON[r.k]}</i>${r.t === "Met / called" ? "Met" : r.t}${st.s === "done" && st.d ? ` · ${fmt(st.d)}` : st.s === "fail" ? " · bounced" : ""}</span>`; }).join(""); })()}</span></div>
         ${contactBtns ? `<div class="cbtns">${contactBtns}</div>` : `<p class="muted" style="margin:0;font-size:14px">No phone, email or Instagram yet. Tap Edit details to add them.</p>`}
         ${v.phone || v.email ? `<dl class="details slim">${line("Phone", v.phone, true)}${line("Email", v.email, true)}${line("Instagram", v.instagram)}</dl>` : ""}
       </section>
@@ -1052,6 +1106,7 @@
       case "hist-all": prefs.histAll = !prefs.histAll; savePrefs(); render(); return;
       case "city": F.city = el.dataset.v; saveF(); render(); return;
       case "filters": filterSheet(); return;
+      case "wa": waSheet(v); return;
       case "unfilter": F[el.dataset.k] = "all"; saveF(); render(); return;
       case "clear-filters": Object.assign(F, { owner: "all", prio: "all", reach: "all", sort: "name", by: "stage" }); saveF(); closeSheet(); render(); return;
       case "by": F.by = el.dataset.v; saveF(); render(); return;
