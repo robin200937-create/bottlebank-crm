@@ -190,6 +190,45 @@
     if (q) { q.value = F.q; q.oninput = () => { F.q = q.value; renderVenueList(); }; }
   }
 
+  /* ---------------------------------------------------------------- pull to refresh */
+  // Pull down from the top of the page and let go: reloads the app with the latest data and version.
+  (function pullToRefresh() {
+    const ind = document.createElement("div");
+    ind.className = "ptr"; ind.setAttribute("aria-hidden", "true");
+    ind.innerHTML = `<span class="ptr-i">↓</span><span class="ptr-t">Pull to refresh</span>`;
+    document.body.appendChild(ind);
+    const PULL = 70;                       // how far (after resistance) counts as a pull
+    let y0 = null, d = 0, ready = false;
+    const reset = () => { ind.style.transform = ""; ind.style.opacity = ""; ind.classList.remove("ready"); d = 0; ready = false; };
+    addEventListener("touchstart", e => {
+      const sheetOpen = $("#sheet-root") && $("#sheet-root").children.length;
+      y0 = (window.scrollY <= 0 && !sheetOpen && e.touches.length === 1) ? e.touches[0].clientY : null;
+    }, { passive: true });
+    addEventListener("touchmove", e => {
+      if (y0 === null) return;
+      const dy = e.touches[0].clientY - y0;
+      if (dy <= 0 || window.scrollY > 0) { reset(); return; }
+      d = Math.min(dy * 0.5, 100);
+      ready = d >= PULL;
+      ind.style.opacity = String(Math.min(1, d / 35));
+      ind.style.transform = `translate(-50%, ${d}px)`;
+      ind.classList.toggle("ready", ready);
+      $(".ptr-t", ind).textContent = ready ? "Let go to refresh" : "Pull to refresh";
+      $(".ptr-i", ind).style.transform = `rotate(${ready ? 180 : 0}deg)`;
+    }, { passive: true });
+    const end = () => {
+      if (y0 === null) return;
+      y0 = null;
+      if (!ready) { reset(); return; }
+      ind.classList.add("busy");
+      $(".ptr-t", ind).textContent = "Refreshing…";
+      $(".ptr-i", ind).textContent = "↻";
+      setTimeout(() => location.reload(), 250);
+    };
+    addEventListener("touchend", end, { passive: true });
+    addEventListener("touchcancel", () => { y0 = null; reset(); }, { passive: true });
+  })();
+
   /* ---------------------------------------------------------------- sync status */
   function syncText() {
     const st = S.sync || {};
