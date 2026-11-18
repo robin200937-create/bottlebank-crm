@@ -516,3 +516,17 @@ body { overscroll-behavior-y: contain; }   /* our own pull-to-refresh replaces t
 .ptr.busy .ptr-i { animation: ptr-spin .8s linear infinite; }
 @keyframes ptr-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ptr.busy .ptr-i { animation: none; } }
+
+/* Forms on phones: fit above the keyboard, one field per row, save button always reachable */
+.scrim { top: var(--vvtop, 0px); bottom: auto; height: var(--vvh, 100%); }
+.sheet { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.sheet form > button[type=submit]:last-child { position: sticky; bottom: calc(-18px - env(safe-area-inset-bottom, 0px)); z-index: 2;
+  box-shadow: 0 0 0 12px var(--surface), 0 -14px 18px 6px var(--surface); }
+@media (max-width: 700px) { .sheet .two { grid-template-columns: 1fr; } }
+.form-more { border: 1px solid var(--line); border-radius: 12px; }
+.form-more summary { list-style: none; cursor: pointer; padding: 12px 14px; font-weight: 700; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.form-more summary::-webkit-details-marker { display: none; }
+.form-more summary::before { content: "›"; display: inline-block; transition: transform .15s; color: var(--text-3); font-size: 18px; line-height: 1; }
+.form-more[open] summary::before { transform: rotate(90deg); }
+.form-more summary .muted { font-weight: 500; font-size: 13px; }
+.form-more-b { display: flex; flex-direction: column; gap: 14px; padding: 0 14px 14px; }

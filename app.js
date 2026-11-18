@@ -597,11 +597,51 @@
     build.bind && build.bind(sheet);
     const first = sheet.querySelector("[autofocus]") || sheet.querySelector("input, select, textarea, button:not(.x)");
     if (first && matchMedia("(min-width: 700px)").matches) first.focus();
-    document.body.style.overflow = "hidden";
+    lockPage();
+    wireFields(sheet);
   }
   function closeSheet() {
     const root = $("#sheet-root"); if (root) root.innerHTML = "";
-    document.body.style.overflow = "";
+    unlockPage();
+  }
+  // Freeze the page behind an open form, so only the form scrolls (iPhone ignores overflow:hidden).
+  let lockedY = null;
+  function lockPage() {
+    if (lockedY !== null) return;
+    lockedY = window.scrollY;
+    Object.assign(document.body.style, { position: "fixed", top: `-${lockedY}px`, left: "0", right: "0", overflow: "hidden" });
+  }
+  function unlockPage() {
+    if (lockedY === null) return;
+    Object.assign(document.body.style, { position: "", top: "", left: "", right: "", overflow: "" });
+    window.scrollTo(0, lockedY); lockedY = null;
+  }
+  // Keep the open form above the phone keyboard: size it to the visible area, not the whole screen.
+  function fitToKeyboard() {
+    const vv = window.visualViewport; if (!vv) return;
+    const r = document.documentElement.style;
+    r.setProperty("--vvh", vv.height + "px");
+    r.setProperty("--vvtop", vv.offsetTop + "px");
+  }
+  if (window.visualViewport) { visualViewport.addEventListener("resize", fitToKeyboard); visualViewport.addEventListener("scroll", fitToKeyboard); fitToKeyboard(); }
+  // Fields: the keyboard's Next/Return goes to the next box; the box you're on scrolls into view.
+  function wireFields(sheet) {
+    const fields = () => [...sheet.querySelectorAll("input:not([type=radio]):not([type=checkbox]):not([type=hidden]), select, textarea")]
+      .filter(el => el.offsetParent !== null && !el.disabled);
+    fields().forEach(el => { if (el.tagName === "INPUT") el.setAttribute("enterkeyhint", "next"); });
+    const list = fields(); const last = list[list.length - 1];
+    if (last && last.tagName === "INPUT") last.setAttribute("enterkeyhint", "done");
+    sheet.addEventListener("keydown", e => {
+      if (e.key !== "Enter" || e.target.tagName !== "INPUT" || e.isComposing) return;
+      const fs = fields(), i = fs.indexOf(e.target);
+      if (i < 0) return;
+      e.preventDefault();
+      if (i < fs.length - 1) fs[i + 1].focus(); else e.target.blur();
+    });
+    sheet.addEventListener("focusin", e => {
+      if (!e.target.matches("input, select, textarea")) return;
+      setTimeout(() => { fitToKeyboard(); e.target.scrollIntoView({ block: "center", behavior: "smooth" }); }, 300);
+    });
   }
   const head = t => `<div class="sheet-head"><h2>${t}</h2><button class="x" type="button" data-act="close" aria-label="Close">${I.x}</button></div>`;
   const sel = (name, opts, cur, blank) => `<select name="${name}" id="f-${name}">${blank !== undefined ? `<option value="">${esc(blank)}</option>` : ""}${opts.map(o => { const [v, l] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(v)}" ${String(cur ?? "") === String(v) ? "selected" : ""}>${esc(l)}</option>`; }).join("")}</select>`;
@@ -705,25 +745,36 @@
         <form id="edit-form" novalidate>
           ${inp("name", "Venue name", "e.g. Jungle Ballroom")}
           <div id="dupe"></div>
-          <div class="two"><label class="field"><span>City</span>${sel("city", [["SG", "Singapore"], ["KL", "Kuala Lumpur"]], v.city)}</label>${inp("area", "Area", "e.g. Clarke Quay")}</div>
-          <div class="two">${inp("venue_type", "Type", "Club, bar, KTV lounge…")}${inp("grp", "Group", "e.g. Zouk Group")}</div>
-          <div class="two">${inp("contact_name", "Contact person")}${inp("contact_role", "Their role", "Owner, manager, COO…")}</div>
-          <div class="two">${inp("phone", "Phone", "+65 9123 4567", "tel")}${inp("email", "Email", "", "email")}</div>
-          <div class="two">${inp("instagram", "Instagram", "@handle")}${inp("website", "Website")}</div>
-          ${inp("address", "Address")}
-          <div class="two"><label class="field"><span>Stage</span>${sel("stage", ALL.map(s => [s.k, s.t]), v.stage)}</label>
-            <label class="field"><span>Priority</span>${sel("priority", PRIORITY.map(p => [p, p === "Image" ? "Image (big name)" : p]), v.priority, "Not set")}</label></div>
-          <div class="two"><label class="field"><span>Owner</span>${sel("owner", ownerOpts(), v.owner, "No owner")}</label>
-            <label class="field"><span>Introduced by</span>${sel("introducer", [...ownerOpts(), ["Other", "Someone else"]], v.introducer, "Not set")}</label></div>
-          <div class="two"><label class="field"><span>Fit</span>${sel("fit", FIT, v.fit, "Not set")}</label>
-            <label class="field"><span>Uses today</span>${sel("current_system", SYSTEMS, v.current_system, "Not set")}</label></div>
+          <label class="field"><span>City</span>${sel("city", [["SG", "Singapore"], ["KL", "Kuala Lumpur"]], v.city)}</label>
+          ${inp("area", "Area", "e.g. Clarke Quay")}
+          ${inp("contact_name", "Contact person")}
+          ${inp("phone", "Phone", "+65 9123 4567", "tel")}
+          ${inp("instagram", "Instagram", "@handle")}
+          <label class="field"><span>Stage</span>${sel("stage", ALL.map(s => [s.k, s.t]), v.stage)}</label>
           <label class="field"><span>Notes</span><textarea name="notes" id="f-notes" placeholder="Anything useful: who decides, opening hours, how many bottles they park…">${esc(v.notes || "")}</textarea></label>
+          <details class="form-more" ${isNew ? "" : "open"}>
+            <summary>More details <span class="muted">email, website, address, owner…</span></summary>
+            <div class="form-more-b">
+              ${inp("contact_role", "Their role", "Owner, manager, COO…")}
+              ${inp("email", "Email", "", "email")}
+              ${inp("website", "Website")}
+              ${inp("address", "Address")}
+              ${inp("venue_type", "Type", "Club, bar, KTV lounge…")}
+              ${inp("grp", "Group", "e.g. Zouk Group")}
+              <label class="field"><span>Priority</span>${sel("priority", PRIORITY.map(p => [p, p === "Image" ? "Image (big name)" : p]), v.priority, "Not set")}</label>
+              <label class="field"><span>Fit</span>${sel("fit", FIT, v.fit, "Not set")}</label>
+              <label class="field"><span>Owner</span>${sel("owner", ownerOpts(), v.owner, "No owner")}</label>
+              <label class="field"><span>Introduced by</span>${sel("introducer", [...ownerOpts(), ["Other", "Someone else"]], v.introducer, "Not set")}</label>
+              <label class="field"><span>Uses today</span>${sel("current_system", SYSTEMS, v.current_system, "Not set")}</label>
+            </div>
+          </details>
           <p class="error" role="alert"></p>
           <button class="btn primary block" type="submit">${isNew ? "Add venue" : "Save changes"}</button>
         </form>`,
       bind(sheet) {
         const f = $("#edit-form", sheet);
         const nameIn = $("#f-name", f);
+        $(".form-more", f).addEventListener("toggle", () => wireFields(sheet));
         if (isNew) {
           nameIn.focus();
           nameIn.oninput = () => {
