@@ -542,3 +542,11 @@ body { overscroll-behavior-y: contain; }   /* our own pull-to-refresh replaces t
 .dchip[aria-pressed="true"] { background: var(--mint); border-color: var(--mint); color: #0C1B1C; }
 @media (max-width: 380px) { .quick { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .cbtn { font-size: 11px; }
+
+/* Nothing may stick out sideways (iPhone date boxes refuse to shrink otherwise) */
+.sheet { overflow-x: hidden; }
+.sheet .field, .sheet .two > * { min-width: 0; }
+input[type=date] { -webkit-appearance: none; appearance: none; display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; text-align: left; }
+input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+.dpick { position: relative; overflow: hidden; display: inline-flex; align-items: center; }
+.dpick input[type=date] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; padding: 0; border: 0; font-size: 16px; }

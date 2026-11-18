@@ -683,11 +683,19 @@
     const lc = STAGE[cur]?.lv ?? -1, lt = STAGE[to]?.lv ?? -1;
     return lc < 0 || lt > lc ? to : cur;
   };
-  const dateChips = name => `<div class="dchips" data-for="${name}">${[["Tomorrow", 1], ["In 3 days", 3], ["Next week", 7], ["In 2 weeks", 14]].map(([l, n]) => `<button type="button" class="dchip" data-days="${n}">${l}</button>`).join("")}<button type="button" class="dchip" data-days="">No date</button></div>`;
+  const dateChips = (name, val) => `<div class="dchips" data-for="${name}">${[["Tomorrow", 1], ["In 3 days", 3], ["Next week", 7], ["In 2 weeks", 14]].map(([l, n]) => `<button type="button" class="dchip" data-days="${n}">${l}</button>`).join("")}<button type="button" class="dchip" data-days="">No date</button><label class="dchip dpick"><span class="dpick-t">Pick date</span><input type="date" name="${name}" id="f-${name}" value="${esc(val || "")}" aria-label="Pick a date"></label></div>`;
   function wireDateChips(root) {
     root.querySelectorAll(".dchips").forEach(box => {
       const input = root.querySelector(`[name=${box.dataset.for}]`);
-      const mark = () => box.querySelectorAll(".dchip").forEach(b => b.setAttribute("aria-pressed", String((b.dataset.days ? addDays(Number(b.dataset.days)) : "") === input.value)));
+      const pick = box.querySelector(".dpick"), pickT = box.querySelector(".dpick-t");
+      const mark = () => {
+        let preset = false;
+        box.querySelectorAll(".dchip[data-days]").forEach(b => { const on = (b.dataset.days ? addDays(Number(b.dataset.days)) : "") === input.value; if (on) preset = true; b.setAttribute("aria-pressed", String(on)); });
+        const custom = !!input.value && !preset;
+        pick.setAttribute("aria-pressed", String(custom));
+        pickT.textContent = custom ? fmt(input.value) : "Pick date";
+      };
+      input.addEventListener("click", () => { try { input.showPicker && input.showPicker(); } catch (e) {} });
       box.querySelectorAll(".dchip").forEach(b => b.onclick = () => { input.value = b.dataset.days ? addDays(Number(b.dataset.days)) : ""; mark(); });
       input.addEventListener("change", mark); mark();
     });
@@ -708,7 +716,7 @@
             <label class="field"><span>Stage now</span>${sel("stage", ALL.map(s => [s.k, s.t]), suggested)}</label>
           </div>
           <label class="field"><span>Next step</span><input name="next_step" id="f-next_step" value="${esc(v.next_step || "")}" placeholder="e.g. Book a demo with the owner"></label>
-          <div class="field"><span>By when</span>${dateChips("next_date")}<input type="date" name="next_date" id="f-next_date" value="${esc(v.next_date || "")}" aria-label="Or pick a date"></div>
+          <div class="field"><span>By when</span>${dateChips("next_date", v.next_date)}</div>
           <label class="field"><span>Who's on it</span>${sel("owner", ownerOpts(), v.owner || S.me.initials)}</label>
           <p class="error" role="alert"></p>
           <button class="btn primary block" type="submit">Save</button>
@@ -764,7 +772,7 @@
       html: `${head("Next step")}
         <form id="next-form" novalidate>
           <label class="field"><span>What happens next at ${esc(v.name)}?</span><input name="next_step" id="f-next_step" value="${esc(v.next_step || "")}" placeholder="e.g. Call Adrian about the quotation" autofocus></label>
-          <div class="field"><span>By when</span>${dateChips("next_date")}<input type="date" name="next_date" id="f-next_date" value="${esc(v.next_date || "")}" aria-label="Or pick a date"></div>
+          <div class="field"><span>By when</span>${dateChips("next_date", v.next_date)}</div>
           <label class="field"><span>Who's on it</span>${sel("owner", ownerOpts(), v.owner || S.me.initials)}</label>
           <p class="error" role="alert"></p>
           <div class="actions"><button class="btn primary" type="submit">Save</button>${v.next_step || v.next_date ? `<button class="btn" type="button" id="clear-next">Clear next step</button>` : ""}</div>
